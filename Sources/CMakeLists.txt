@@ -13,8 +13,16 @@ file(GLOB PHOENIX_SRC
 
 source_group(PHOENIX   FILES ${PHOENIX_SRC})
 
+file(GLOB SHADERS_SRC
+	"${PROJECT_SOURCE_DIR}/../Shaders/*.vert"
+	"${PROJECT_SOURCE_DIR}/../Shaders/*.frag"
+	"${PROJECT_SOURCE_DIR}/../Shaders/*.bat"
+)
+source_group(SHADERS FILES ${SHADERS_SRC})
+
 set( ALL_SRC
 	${PHOENIX_SRC}
+	${SHADERS_SRC}
 )
 	
 add_executable(Phoenix ${ALL_SRC})

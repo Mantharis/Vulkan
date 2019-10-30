@@ -70,13 +70,14 @@ struct Buffer
 {
 	VkBuffer buffer;
 	VkDeviceMemory bufferMemory;
+	size_t size;
 
 	VkDevice m_Device = VK_NULL_HANDLE;
 
 	template<typename T> explicit Buffer(VkPhysicalDevice physicalDevice, VkDevice device, T* bufferDataPtr,size_t  dataCnt, VkBufferUsageFlagBits usageBits)
 	{
 		m_Device = device;
-
+		size = sizeof(T) * dataCnt;
 		VulkanHelpers::createBuffer(buffer, bufferMemory, physicalDevice, device, bufferDataPtr, dataCnt, usageBits);
 	}
 
@@ -119,7 +120,7 @@ private:
 	}
 };
 
-
+/*
 struct DescriptorSet
 {
 	VkDescriptorPool m_DescriptorPool;
@@ -236,44 +237,361 @@ private:
 		m_Device = VK_NULL_HANDLE;
 	}
 };
+*/
+
+struct ShaderParam
+{
+	VkDescriptorSetLayoutBinding m_DescriptorSetLayoutBinding;
+	variant< VkDescriptorImageInfo, VkDescriptorBufferInfo> m_DescriptorInfo;
+};
+
+/*
+//TODO tohle by se melo asi samo vytvorit (create...)
+struct DescriptorSetLayout
+{
+	DescriptorSetLayout(VkDevice device, VkDescriptorSetLayout descriptorSetLayout)
+	{
+		m_Device = device;
+		m_DescriptorSetLayout = descriptorSetLayout;
+	}
+
+	~DescriptorSetLayout()
+	{
+		destroy();
+	}
+
+	DescriptorSetLayout& operator=(DescriptorSetLayout&& obj)
+	{
+		destroy();
+		*this = obj;
+		obj.m_Device = VK_NULL_HANDLE;
+
+		return *this;
+	}
+
+	DescriptorSetLayout(DescriptorSetLayout&& obj)
+	{
+		*this = move(obj);
+	}
+
+	VkDescriptorSetLayout get() const
+	{
+		return m_DescriptorSetLayout;
+	}
+
+private:
+	DescriptorSetLayout& operator=(DescriptorSetLayout const&) = default;
+	DescriptorSetLayout(DescriptorSetLayout const&) = default;
+
+	void destroy()
+	{
+		if (m_Device == VK_NULL_HANDLE) return;
+
+		vkDestroyDescriptorSetLayout(m_Device, m_DescriptorSetLayout, nullptr);
+		m_Device = VK_NULL_HANDLE;
+	}
+
+	VkDevice m_Device = VK_NULL_HANDLE;
+	VkDescriptorSetLayout m_DescriptorSetLayout;
+};
+*/
+
+class DescriptorSetLayout
+{
+public:
+	DescriptorSetLayout(VkDevice device) : m_Device(device)
+	{
+	}
+
+	~DescriptorSetLayout()
+	{
+		if (m_DescriptorSetLayout != VK_NULL_HANDLE)
+		{
+			vkDestroyDescriptorSetLayout(m_Device, m_DescriptorSetLayout, nullptr);
+			m_DescriptorSetLayout = VK_NULL_HANDLE;
+		}
+	}
+
+	DescriptorSetLayout(DescriptorSetLayout const&) = delete;
+	DescriptorSetLayout& operator=(DescriptorSetLayout const&) = delete;
+	DescriptorSetLayout(DescriptorSetLayout &&) = delete;
+	DescriptorSetLayout& operator=(DescriptorSetLayout &&) = delete;
+
+	void addDescriptor(string const& paramName, size_t binding, VkShaderStageFlags shaderStages, VkDescriptorType type)
+	{
+		assert(m_DescriptorSetLayoutBindingData.count(paramName) == 0);
+
+		auto& samplerLayoutBinding = m_DescriptorSetLayoutBindingData[paramName];
+		samplerLayoutBinding = {};
+		samplerLayoutBinding.binding = binding;
+		samplerLayoutBinding.descriptorCount = 1;
+		samplerLayoutBinding.descriptorType = type;
+		samplerLayoutBinding.pImmutableSamplers = nullptr;
+		samplerLayoutBinding.stageFlags = shaderStages;
+	}
+
+	void createDescriptorSetLayout()
+	{
+		assert(m_DescriptorSetLayout == nullptr);
+
+		vector< VkDescriptorSetLayoutBinding> bindings;
+		for (auto &it : m_DescriptorSetLayoutBindingData) bindings.push_back(it.second);
+
+		{	//check if binding ids are unique
+			unordered_set<size_t> bindingIds;
+			for_each(begin(bindings), end(bindings), [&bindings, &bindingIds](VkDescriptorSetLayoutBinding const& item)
+				{
+					assert(item.binding >= 0 && item.binding < bindings.size());
+					auto it = bindingIds.insert(item.binding);
+					assert(it.second);
+				});
+		}
+
+		VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = bindings.size();
+		layoutInfo.pBindings = &bindings[0];
+
+		auto res = vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
+		assert(res == VK_SUCCESS);
+	}
+
+	VkDescriptorSetLayoutBinding const* getDescriptor(string const& paramName) const
+	{
+		auto it= m_DescriptorSetLayoutBindingData.find(paramName);
+		if (it == m_DescriptorSetLayoutBindingData.end()) return nullptr;
+		return &(it->second);
+	}
+
+	size_t getDescriptorCount() const
+	{
+		return m_DescriptorSetLayoutBindingData.size();
+	}
+
+	template< typename Func> void enumerate(Func func)
+	{
+		for (auto& it : m_DescriptorSetLayoutBindingData)
+		{
+			func(it.second);
+		}
+	}
+	VkDevice getDevice() const
+	{
+		return m_Device;
+	}
+
+	VkDescriptorSetLayout getLayout() const
+	{
+		return m_DescriptorSetLayout;
+	}
+
+private:
+	VkDevice m_Device = VK_NULL_HANDLE;
+	VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
+	unordered_map<string, VkDescriptorSetLayoutBinding> m_DescriptorSetLayoutBindingData;
+};
+
+
+class DescriptorSet
+{
+public:
+	DescriptorSet(shared_ptr<DescriptorSetLayout> descriptorSetLayout)
+	{
+		m_DescriptorSetLayout = move(descriptorSetLayout);
+	}
+
+	~DescriptorSet()
+	{
+		destroy();
+	}
+
+	DescriptorSet(DescriptorSet &&obj)
+	{
+		*this = move(obj);
+	}
+
+	DescriptorSet& operator=(DescriptorSet &&obj)
+	{
+		*this = obj;
+		obj.m_DescriptorPool = VK_NULL_HANDLE;
+
+		return *this;
+	}
+
+	void createDescriptorSet()
+	{
+		unordered_multiset<VkDescriptorType> descriptorTypeCnt;
+
+		for (auto& descInfo : m_DescriptorInfo)
+		{
+			if (get_if<VkDescriptorImageInfo>(&descInfo)) descriptorTypeCnt.insert(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+			else if (get_if<VkDescriptorBufferInfo>(&descInfo)) descriptorTypeCnt.insert(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+			else assert(!"Unsupported type");
+		}
+
+		vector< VkDescriptorPoolSize> poolSizes;
+		for (auto& descriptorType : descriptorTypeCnt)
+		{
+			VkDescriptorPoolSize descriptorPoolSize;
+			descriptorPoolSize.type = descriptorType;
+			descriptorPoolSize.descriptorCount = descriptorTypeCnt.count(descriptorType);
+
+			poolSizes.push_back(descriptorPoolSize);
+		}
+
+		VkDescriptorPoolCreateInfo poolInfo = {};
+		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		poolInfo.poolSizeCount = poolSizes.size();
+		poolInfo.pPoolSizes = poolSizes.data();
+		poolInfo.maxSets = 1;
+
+		VkDevice device = m_DescriptorSetLayout->getDevice();
+
+		auto res = vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_DescriptorPool);
+		assert(res == VK_SUCCESS);
+
+		VkDescriptorSetAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocInfo.descriptorPool = m_DescriptorPool;
+		allocInfo.descriptorSetCount = 1;
+
+		auto layout = m_DescriptorSetLayout->getLayout();
+		allocInfo.pSetLayouts = &layout;
+
+		res = vkAllocateDescriptorSets(device, &allocInfo, &m_DescriptorSet);
+
+		assert(res == VK_SUCCESS);
+
+		vector< VkWriteDescriptorSet> descriptorWriteSet;
+
+		m_DescriptorSetLayout->enumerate([&descriptorWriteSet, this](VkDescriptorSetLayoutBinding const& descSetLayoutBinding)
+			{
+				VkWriteDescriptorSet newDescriptorSet = {};
+				newDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				newDescriptorSet.dstSet = m_DescriptorSet;
+				newDescriptorSet.dstBinding = descSetLayoutBinding.binding;
+				newDescriptorSet.dstArrayElement = 0;
+				newDescriptorSet.descriptorType = descSetLayoutBinding.descriptorType;
+				newDescriptorSet.descriptorCount = descSetLayoutBinding.descriptorCount;
+				newDescriptorSet.pImageInfo = get_if<VkDescriptorImageInfo>(&m_DescriptorInfo[descSetLayoutBinding.binding]);
+				newDescriptorSet.pBufferInfo = get_if<VkDescriptorBufferInfo>(&m_DescriptorInfo[descSetLayoutBinding.binding]);
+
+				descriptorWriteSet.push_back(newDescriptorSet);
+			});
+
+		vkUpdateDescriptorSets(device, descriptorWriteSet.size(), &descriptorWriteSet[0], 0, nullptr);
+	}
+
+	void addSampler(string const& paramName, VkImageView imageView, VkSampler sampler)
+	{
+		auto desc = m_DescriptorSetLayout->getDescriptor(paramName);
+		assert(desc != nullptr && desc->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+
+		VkDescriptorImageInfo imageInfo = {};
+		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo.imageView = imageView;
+		imageInfo.sampler = sampler;
+
+		if (m_DescriptorInfo.size() < desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
+		m_DescriptorInfo[desc->binding] = imageInfo;
+	}
+
+	void addBuffer(string const& paramName, Buffer const & buffer)
+	{
+		auto desc = m_DescriptorSetLayout->getDescriptor(paramName);
+		assert(desc != nullptr && desc->descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = buffer.buffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = buffer.size;
+
+		if (m_DescriptorInfo.size() <= desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
+		m_DescriptorInfo[desc->binding] = bufferInfo;
+	}
+
+	VkDescriptorSet getDescriptorSet() const
+	{
+		return m_DescriptorSet;
+	}
+
+	shared_ptr<DescriptorSetLayout> getDescriptorSetlayout() const
+	{
+		return m_DescriptorSetLayout;
+	}
+
+private:
+
+	void destroy()
+	{
+		if (m_DescriptorPool != VK_NULL_HANDLE)
+		{
+			vkDestroyDescriptorPool(m_DescriptorSetLayout->getDevice(), m_DescriptorPool, nullptr);
+			m_DescriptorPool = VK_NULL_HANDLE;
+		}
+	}
+
+	DescriptorSet(DescriptorSet const&) = default;
+	DescriptorSet& operator=(DescriptorSet const&) = default;
+
+	VkDescriptorSet m_DescriptorSet;
+	VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
+	shared_ptr<DescriptorSetLayout> m_DescriptorSetLayout;
+	vector<variant< VkDescriptorImageInfo, VkDescriptorBufferInfo>> m_DescriptorInfo;
+};
+
 
 struct MaterialDescription
 {
 	shared_ptr<const TextureData> m_DiffuseTexture;
-	shared_ptr<const TextureData> m_ReflectionTexture;
-
+	shared_ptr<const TextureData> m_SpecularTexture;
+	shared_ptr<const TextureData> m_NormalTexture;
+	shared_ptr<const TextureData> m_SpecularHighlightTexture;
 	shared_ptr<const Sampler> m_Sampler;
-
-
+	
+	DescriptorSet m_ShaderParams;
 	Buffer m_UniformBuffer;
-	DescriptorSet m_DescriptorSet;
-	string m_Path;
-};
 
+	string m_Id;
+};
 
 class MaterialManager
 {
 public:
 
-	MaterialManager(TextureManager& textureManager, VkDevice device, VkPhysicalDevice physicalDevice, VkDescriptorSetLayout descriptorSetLayout) :m_TextureManager(textureManager)
+	MaterialManager(TextureManager& textureManager, VkDevice device, VkPhysicalDevice physicalDevice) :m_TextureManager(textureManager)
 	{
 		m_Device = device;
 		m_PhysicalDevice = physicalDevice;
-		m_DescriptorSetLayout = descriptorSetLayout;
+		m_Sampler = shared_ptr<const Sampler>(new Sampler(m_Device));
+
+		m_DecriptorSetLayout = make_shared<DescriptorSetLayout>(device);
+		m_DecriptorSetLayout->addDescriptor("materialBuffer", 0, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+		m_DecriptorSetLayout->addDescriptor("diffuseTex", 1, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->addDescriptor("specularTex", 2, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->addDescriptor("normalTex", 3, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->addDescriptor("specularHighlightTex", 4, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->createDescriptorSetLayout();
 	}
+
 	shared_ptr<const MaterialDescription> createMaterial(tinyobj::material_t const& material, const string& path)
 	{
-		auto it = m_Data.find(material.diffuse_texname);
+		string materialName = path+"/" + material.name;
+
+		auto it = m_Data.find(materialName);
 		if (it != end(m_Data))
 		{
 			return shared_ptr<const MaterialDescription>(it->second);
 		}
 		else
 		{
-			auto diffuseTexture = m_TextureManager.loadTexture(path + "/" + material.diffuse_texname);
-			auto reflectionTexture = m_TextureManager.loadTexture(path + "/" + material.reflection_texname);
+			string defaultPath = path.substr(0, path.find("Models/")) + "Models/";
 
-			auto sampler = shared_ptr<const Sampler>(new Sampler(m_Device)); //TODO
+			auto diffuseTexture = !material.diffuse_texname.empty() ? m_TextureManager.loadTexture(path + "/" + material.diffuse_texname) : m_TextureManager.loadTexture(defaultPath + "/defaultDiffuse.png");
+			auto specularTexture = !material.specular_texname.empty() ? m_TextureManager.loadTexture(path + "/" + material.specular_texname): m_TextureManager.loadTexture(defaultPath + "/defaultSpecular.png");
+			auto specularHighlightTexture = !material.specular_highlight_texname.empty() ? m_TextureManager.loadTexture(path + "/" + material.specular_highlight_texname) : m_TextureManager.loadTexture(defaultPath + "/defaultSpecularExp.png");
+			auto normalTexture = !material.specular_highlight_texname.empty() ? m_TextureManager.loadTexture(path + "/" + material.bump_texname) : m_TextureManager.loadTexture(defaultPath + "/defaultNormal.png");
+
 
 			MaterialUBO materialBuffer;
 			materialBuffer.diffuse.r = material.diffuse[0];
@@ -290,50 +608,49 @@ public:
 
 			materialBuffer.shininess = material.shininess;
 
-		
 			auto buffer = Buffer(m_PhysicalDevice, m_Device, &materialBuffer, 1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+			
+			DescriptorSet descriptorSet(m_DecriptorSetLayout);
 
-			VkDescriptorBufferInfo bufferInfo = {};
-			bufferInfo.buffer = buffer.buffer;
-			bufferInfo.offset = 0;
-			bufferInfo.range = sizeof(MaterialUBO);
+			descriptorSet.addBuffer("materialBuffer",buffer);
+			descriptorSet.addSampler("diffuseTex", diffuseTexture->imageView, m_Sampler->m_Sampler);
+			descriptorSet.addSampler("specularTex", specularTexture->imageView, m_Sampler->m_Sampler);
+			descriptorSet.addSampler("normalTex",normalTexture->imageView, m_Sampler->m_Sampler);
+			descriptorSet.addSampler("specularHighlightTex", specularHighlightTexture->imageView, m_Sampler->m_Sampler);
+			descriptorSet.createDescriptorSet();
 
-			VkDescriptorImageInfo imageInfo1 = {};
-			imageInfo1.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			imageInfo1.imageView = diffuseTexture->imageView;
-			imageInfo1.sampler = sampler->m_Sampler;
-
-			VkDescriptorImageInfo imageInfo2 = {};
-			imageInfo2.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			imageInfo2.imageView = reflectionTexture->imageView;
-			imageInfo2.sampler = sampler->m_Sampler;
-
-			DescriptorSet descriptorSet(m_Device, m_DescriptorSetLayout, { bufferInfo, imageInfo1, imageInfo2 });
-
-			MaterialDescription* newMaterial = new MaterialDescription{ move(diffuseTexture), move(reflectionTexture), move(sampler), move(buffer), move(descriptorSet) };
-			newMaterial->m_Path = material.diffuse_texname;
+			MaterialDescription* newMaterial = new MaterialDescription{ move(diffuseTexture), move(specularTexture), move(normalTexture), move(specularHighlightTexture), m_Sampler, move(descriptorSet), move(buffer) };
+			newMaterial->m_Id = materialName;
 
 			shared_ptr<const MaterialDescription> sharedPtr(newMaterial, [this](MaterialDescription* matData)
 				{
 					//remove from database
-					m_Data.erase(matData->m_Path);
+					m_Data.erase(matData->m_Id);
 
 					//free CPU memory
 					delete matData;
 				});
 
 			//add into database
-			m_Data[material.diffuse_texname] = sharedPtr;
+			m_Data[materialName] = sharedPtr;
 
 			return sharedPtr;
 		}
 	}
 
+	shared_ptr <DescriptorSetLayout> getDescriptorSetLayout() const
+	{
+		return m_DecriptorSetLayout;
+	}
+	
 private:
 	VkDevice m_Device;
 	VkPhysicalDevice m_PhysicalDevice;
-	VkDescriptorSetLayout m_DescriptorSetLayout;
+	
+	shared_ptr<const Sampler> m_Sampler;
 	TextureManager& m_TextureManager;
+
+	shared_ptr <DescriptorSetLayout> m_DecriptorSetLayout;
 
 	unordered_map<string, weak_ptr <const MaterialDescription> > m_Data;
 };

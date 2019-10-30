@@ -3,9 +3,12 @@
 #include <vulkan/vulkan.h>
 #include <assert.h>
 
+#include <fstream>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+using namespace std;
 
 class VulkanHelpers
 {
@@ -194,6 +197,30 @@ public:
 		vkBindImageMemory(device, image, imageMemory, 0);
 	}
 
+	static void createShaderModuleFromFile(const char* filePath, VkDevice device, VkShaderModule& outShaderModule)
+	{
+		ifstream file(filePath, ifstream::binary);
+
+		assert(file);
+
+		file.seekg(0, file.end);
+		size_t size = file.tellg();
+		string buffer;
+		buffer.resize(size);
+
+		file.seekg(0, file.beg);
+		file.read(&buffer[0], size);
+		file.close();
+
+		VkShaderModuleCreateInfo createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+		createInfo.codeSize = buffer.size();
+		createInfo.pCode = reinterpret_cast<const uint32_t*>(buffer.data());
+
+		VkShaderModule shaderModule;
+		auto res = vkCreateShaderModule(device, &createInfo, nullptr, &outShaderModule);
+		assert(res == VK_SUCCESS);
+	}
 private:
 	static void transitionImageLayout(VkDevice device, VkCommandPool commandPool, VkQueue graphicQueue, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 	{

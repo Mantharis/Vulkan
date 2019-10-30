@@ -65,10 +65,12 @@ public:
 							if (pairItInserted.second)
 							{
 
-								
-								mesh.normals.push_back(attrib.normals[index.normal_index * 3]);
-								mesh.normals.push_back(attrib.normals[index.normal_index * 3 + 1]);
-								mesh.normals.push_back(attrib.normals[index.normal_index * 3 + 2]);
+								if (index.normal_index != -1)
+								{
+									mesh.normals.push_back(attrib.normals[index.normal_index * 3]);
+									mesh.normals.push_back(attrib.normals[index.normal_index * 3 + 1]);
+									mesh.normals.push_back(attrib.normals[index.normal_index * 3 + 2]);
+								}
 
 								mesh.vertices.push_back(attrib.vertices[index.vertex_index * 3]);
 								mesh.vertices.push_back(attrib.vertices[index.vertex_index * 3 + 1]);

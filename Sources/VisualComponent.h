@@ -33,7 +33,8 @@ public:
 	{
 		for (size_t i = 0; i < m_ModelData->meshes.size(); ++i)
 		{
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &m_ModelData->materials[i]->m_DescriptorSet.m_DescriptorSet, 0, nullptr);
+			auto descriptorSet = m_ModelData->materials[i]->m_ShaderParams.getDescriptorSet();
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
 			VkDeviceSize offsets[] = { 0 };
 			vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_ModelData->meshes[i].vertexBufffer, offsets);
