@@ -1,32 +1,13 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(location = 0) in vec3 fragColor;
-layout(location = 1) in vec2 fragTexCoord;
-layout(location = 2) in vec3 fragPosition;
-layout(location = 3) in vec3 fragNormal;
-layout(location = 4) in vec3 eyeDir_tangentSpace;
-layout(location = 5) in vec3 lightDir_tangentSpace;
-layout(location = 6) in vec3 lightColor;
-
+layout(location = 0) in vec2 fragTexCoord;
 layout(location = 0) out vec4 outColor;
-
-layout( set =0, binding = 0) uniform MaterialUBO 
-{
-    vec3 diffuse;
-	vec3 ambient;
-	vec3 specular;
-	float shininess;
-} material;
-
-
-layout( set =0, binding = 5) uniform sampler2D aoMap;
-layout( set =0, binding = 4) uniform sampler2D roughnessMap;
-layout( set =0, binding = 3) uniform sampler2D normalSampler;
-layout( set =0, binding = 2) uniform sampler2D metallicMap;
+layout( set =0, binding = 3) uniform sampler2D metalicRoughnessAoMap;
+layout( set =0, binding = 2) uniform sampler2D normalMap;
 layout( set =0, binding = 1) uniform sampler2D albedoMap;
+layout( set =0, binding = 0) uniform sampler2D fragPosMap;
 
- 
  const float PI = 3.14159265359;
   
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
@@ -68,21 +49,24 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
     return ggx1 * ggx2;
 }
 
+
 void main()
 {		
 	vec3 cameraPos=vec3(0,0,0); //camera pos is at origin in view space
+	vec3 N = texture(normalMap, fragTexCoord).rgb;
 	
-	vec3 albedo     = pow(texture(albedoMap, fragTexCoord).rgb, vec3(2.2));
-    float metallic  = texture(metallicMap, fragTexCoord).r;
-    float roughness = texture(roughnessMap, fragTexCoord).r;
-	
-    float ao        = texture(aoMap, fragTexCoord).r;
+	vec3 albedo     = texture(albedoMap, fragTexCoord).rgb;
+    float metallic  = texture(metalicRoughnessAoMap, fragTexCoord).r;
+    float roughness = texture(metalicRoughnessAoMap, fragTexCoord).g;
+    float ao        = texture(metalicRoughnessAoMap, fragTexCoord).b;
 	
 	vec3 lightPos=cameraPos;
+	
+	vec3 fragPosition= texture(fragPosMap, fragTexCoord).rgb;
+	
 	float distance=length(lightPos - fragPosition);
 	
 	vec3 L= normalize(lightPos-fragPosition);
-	vec3 N = normalize(  texture(normalSampler, fragTexCoord).rgb*2.0 - 1.0);
 	vec3 V=normalize(cameraPos-fragPosition);
 
 
@@ -94,6 +78,7 @@ void main()
 
         // calculate per-light radiance
 
+vec3 lightColor=vec3(1.0);
 vec3 boostedLightColor = lightColor * 30000.0;
 
         vec3 H = normalize(V + L);
@@ -118,8 +103,7 @@ vec3 boostedLightColor = lightColor * 30000.0;
         Lo += (kD * albedo / PI + specular) * radiance * NdotL; 
       
   
-    //vec3 ambient = vec3(0.03) * albedo * ao;
-	 vec3 ambient = material.ambient * albedo * ao;
+    vec3 ambient = vec3(0.03) * albedo * ao;
     vec3 color = ambient + Lo;
 	
     color = color / (color + vec3(1.0));

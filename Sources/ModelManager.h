@@ -91,10 +91,17 @@ public:
 					glm::vec3 tangent = (deltaPos1 * deltaUV2.y - deltaPos2 * deltaUV1.y) * r;
 					glm::vec3 bitangent = (deltaPos2 * deltaUV1.x - deltaPos1 * deltaUV2.x) * r;
 
+					
+
 					if (mesh.normals.empty())
 					{
 						glm::vec3 normal = normalize(glm::cross(deltaPos1, deltaPos2 * -1.0f));
 						vert0.normal = vert1.normal = vert2.normal = normal;
+					}
+
+					if (glm::dot(glm::cross(vert0.normal, tangent), bitangent) < 0.0f) 
+					{
+						tangent = tangent * -1.0f;
 					}
 
 					vert0.tangent = vert1.tangent = vert2.tangent = tangent;

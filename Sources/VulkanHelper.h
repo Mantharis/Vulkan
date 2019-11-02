@@ -2,17 +2,137 @@
 
 #include <vulkan/vulkan.h>
 #include <assert.h>
-
+#include <optional>
 #include <fstream>
+#include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 using namespace std;
 
+struct AttachmentData
+{
+	VkImage image;
+	VkDeviceMemory memory;
+	VkImageView view;
+};
+
+struct FramebufferData
+{
+	VkRenderPass renderPass;
+	vector< AttachmentData> colorAttachments;
+	optional< AttachmentData> depthAttachment;
+	VkFramebuffer framebuffer;
+};
+
+struct ShaderSet
+{
+	vector<VkDescriptorSetLayout> descriptorSetLayout;
+	vector< VkPushConstantRange> pushConstant;
+
+	VkVertexInputBindingDescription vertexInputBindingDescription;
+	vector< VkVertexInputAttributeDescription> vertexInputAttributeDescription;
+
+	string vertexShaderPath;
+	string fragmentShaderPath;
+};
+
+
 class VulkanHelpers
 {
 public:
+
+	/*
+	//create color attachment
+	VulkanHelpers::createImage(physicalDevice, device, extent.width, extent.width, imageFormat,
+		VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		outFramebufferData.colorImage, outFramebufferData.colorDeviceMemory);
+
+	VulkanHelpers::createImageView(outFramebufferData.colorImageView, device, outFramebufferData.colorImage, imageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	//create depth attachement
+	VulkanHelpers::createImage(physicalDevice, device, extent.width, extent.width,
+		VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		outFramebufferData.depthImage, outFramebufferData.depthDeviceMemory);
+
+	*/
+
+	static void createAttachmnent(AttachmentData &outAttachmentData, VkPhysicalDevice physicalDevice, VkDevice device, VkFormat imageFormat, VkImageUsageFlags imageUsageFlags, VkImageAspectFlags aspectFlags , VkExtent2D extent)
+	{
+		//create color attachment
+		VulkanHelpers::createImage(physicalDevice, device, extent.width, extent.width, imageFormat,
+			VK_IMAGE_TILING_OPTIMAL, imageUsageFlags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			outAttachmentData.image, outAttachmentData.memory);
+
+		VulkanHelpers::createImageView(outAttachmentData.view, device, outAttachmentData.image, imageFormat, aspectFlags);
+	}
+
+	static void createFramebuffer(VkFramebuffer &outFramebuffer, VkRenderPass renderPass,  vector<VkImageView>& attachmentData, VkDevice device,  VkExtent2D extent)
+	{
+		VkFramebufferCreateInfo framebufferInfo = {};
+		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		framebufferInfo.renderPass = renderPass;
+		framebufferInfo.attachmentCount = attachmentData.size();
+		framebufferInfo.pAttachments = &attachmentData[0];
+		framebufferInfo.width = extent.width;
+		framebufferInfo.height = extent.height;
+		framebufferInfo.layers = 1;
+
+		auto res = vkCreateFramebuffer(device, &framebufferInfo, nullptr, &outFramebuffer);
+		assert(res == VK_SUCCESS);
+	}
+
+	static void createFramebufferWithColorAndDepth(FramebufferData& outFramebufferData, VkPhysicalDevice physicalDevice, VkDevice device, VkFormat imageFormat, VkExtent2D extent)
+	{
+		// Create a separate render pass for the offscreen rendering as it may differ from the one used for scene rendering
+		VulkanHelpers::createRenderPassWithColorAndDepthAttachment(outFramebufferData.renderPass, device, imageFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		AttachmentData colorAttachment;
+		createAttachmnent(colorAttachment, physicalDevice, device, imageFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, extent);
+
+		AttachmentData depthAttachment;
+		createAttachmnent(depthAttachment, physicalDevice, device, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, extent);
+
+		//create frameBuffer from those attachements
+		vector<VkImageView> attachments;
+		attachments.push_back(colorAttachment.view);
+		attachments.push_back(depthAttachment.view);
+
+		outFramebufferData.colorAttachments.push_back(colorAttachment);
+		outFramebufferData.depthAttachment = depthAttachment;
+
+		createFramebuffer(outFramebufferData.framebuffer, outFramebufferData.renderPass, attachments, device, extent);
+	}
+
+	static void createFramebuffersForDefferedShading(FramebufferData& outFramebufferData, VkPhysicalDevice physicalDevice, VkDevice device, VkFormat imageFormat, VkExtent2D extent)
+	{
+		const int colorAttachmentCnt = 4;
+		// Create a separate render pass for the offscreen rendering as it may differ from the one used for scene rendering
+		VulkanHelpers::createRenderPass(outFramebufferData.renderPass, device, imageFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, colorAttachmentCnt, true);
+
+		vector<AttachmentData> colorAttachments;
+		colorAttachments.resize(colorAttachmentCnt);
+
+		for (auto& it : colorAttachments) createAttachmnent(it, physicalDevice, device, imageFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, extent);
+		
+		AttachmentData depthAttachment;
+		createAttachmnent(depthAttachment, physicalDevice, device, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, extent);
+
+		//create frameBuffer from those attachements
+		vector<VkImageView> attachments;
+
+		for (auto& it : colorAttachments) attachments.push_back(it.view);
+
+		attachments.push_back(depthAttachment.view);
+
+		outFramebufferData.colorAttachments = move(colorAttachments);
+		outFramebufferData.depthAttachment = depthAttachment;
+	
+		createFramebuffer(outFramebufferData.framebuffer, outFramebufferData.renderPass, attachments, device, extent);
+	}
+
+
 	template<typename T> static void createBuffer(VkBuffer& buffer, VkDeviceMemory& memory, VkPhysicalDevice physicalDevice, VkDevice device, T const* inputData, size_t inputSize, VkBufferUsageFlags bufferUsageFlag)
 	{
 		VkBufferCreateInfo bufferInfo = {};
@@ -69,6 +189,245 @@ public:
 		assert(res == VK_SUCCESS);
 	}
 
+	static void createGraphicsPipeline(VkDevice device, VkRenderPass renderPass, int colorAttachmentCnt, VkExtent2D extent, ShaderSet const& shaderSet, VkPipelineLayout& outPipelineLayout, VkPipeline& outPipeline)
+	{
+		VkShaderModule vertShader;
+		VulkanHelpers::createShaderModuleFromFile(shaderSet.vertexShaderPath.c_str(), device, vertShader);
+
+		VkShaderModule fragShader;
+		VulkanHelpers::createShaderModuleFromFile(shaderSet.fragmentShaderPath.c_str(), device, fragShader);
+
+		VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
+		vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+		vertShaderStageInfo.module = vertShader;
+		vertShaderStageInfo.pName = "main";
+
+		VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
+		fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+		fragShaderStageInfo.module = fragShader;
+		fragShaderStageInfo.pName = "main";
+
+
+		VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+		if (!shaderSet.vertexInputAttributeDescription.empty())
+		{
+			vertexInputInfo.vertexBindingDescriptionCount = 1;
+			vertexInputInfo.pVertexBindingDescriptions = &shaderSet.vertexInputBindingDescription;
+			vertexInputInfo.vertexAttributeDescriptionCount = shaderSet.vertexInputAttributeDescription.size();
+			vertexInputInfo.pVertexAttributeDescriptions = &shaderSet.vertexInputAttributeDescription[0];
+		}
+
+
+		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+		VkViewport viewport = {};
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = (float)extent.width;
+		viewport.height = (float)extent.height;
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+
+		VkRect2D scissor = {};
+		scissor.offset = { 0, 0 };
+		scissor.extent = extent;
+
+		VkPipelineViewportStateCreateInfo viewportState = {};
+		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+		viewportState.viewportCount = 1;
+		viewportState.pViewports = &viewport;
+		viewportState.scissorCount = 1;
+		viewportState.pScissors = &scissor;
+
+		VkPipelineRasterizationStateCreateInfo rasterizer = {};
+		rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+		rasterizer.depthClampEnable = VK_FALSE;
+		rasterizer.rasterizerDiscardEnable = VK_FALSE;
+		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+		rasterizer.lineWidth = 1.0f;
+		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+		rasterizer.depthBiasEnable = VK_FALSE;
+		rasterizer.depthBiasConstantFactor = 0.0f; // Optional
+		rasterizer.depthBiasClamp = 0.0f; // Optional
+		rasterizer.depthBiasSlopeFactor = 0.0f; // Optional
+
+		VkPipelineMultisampleStateCreateInfo multisampling = {};
+		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+		multisampling.sampleShadingEnable = VK_FALSE;
+		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		multisampling.minSampleShading = 1.0f; // Optional
+		multisampling.pSampleMask = nullptr; // Optional
+		multisampling.alphaToCoverageEnable = VK_FALSE; // Optional
+		multisampling.alphaToOneEnable = VK_FALSE; // Optional
+
+		vector< VkPipelineColorBlendAttachmentState> colorBlendAttachments;
+
+		for (size_t i = 0; i < colorAttachmentCnt; ++i)
+		{
+			VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+			colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+			colorBlendAttachment.blendEnable = VK_FALSE;
+			colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
+			colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
+			colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD; // Optional
+			colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
+			colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
+			colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD; // Optional
+
+			colorBlendAttachments.push_back(colorBlendAttachment);
+		}
+
+
+		VkPipelineColorBlendStateCreateInfo colorBlending = {};
+		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		colorBlending.logicOpEnable = VK_FALSE;
+		colorBlending.logicOp = VK_LOGIC_OP_COPY; // Optional
+		colorBlending.attachmentCount = colorBlendAttachments.size();
+		colorBlending.pAttachments = &colorBlendAttachments[0];
+		colorBlending.blendConstants[0] = 0.0f; // Optional
+		colorBlending.blendConstants[1] = 0.0f; // Optional
+		colorBlending.blendConstants[2] = 0.0f; // Optional
+		colorBlending.blendConstants[3] = 0.0f; // Optional
+
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = shaderSet.descriptorSetLayout.size();
+		pipelineLayoutInfo.pSetLayouts = &shaderSet.descriptorSetLayout[0];
+
+		if (!shaderSet.pushConstant.empty())
+		{
+			pipelineLayoutInfo.pushConstantRangeCount = shaderSet.pushConstant.size();
+			pipelineLayoutInfo.pPushConstantRanges = &shaderSet.pushConstant[0];
+		}
+
+
+		auto res = vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &outPipelineLayout);
+		assert(VK_SUCCESS == res);
+
+		VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+		depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		depthStencil.depthTestEnable = VK_TRUE;
+		depthStencil.depthWriteEnable = VK_TRUE;
+		depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+		depthStencil.depthBoundsTestEnable = VK_FALSE;
+		depthStencil.minDepthBounds = 0.0f; // Optional
+		depthStencil.maxDepthBounds = 1.0f; // Optional
+		depthStencil.stencilTestEnable = VK_FALSE;
+		depthStencil.front = {}; // Optional
+		depthStencil.back = {}; // Optional
+
+
+		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+		VkGraphicsPipelineCreateInfo pipelineInfo = {};
+		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+		pipelineInfo.stageCount = 2;
+		pipelineInfo.pStages = shaderStages;
+		pipelineInfo.pVertexInputState = &vertexInputInfo;
+		pipelineInfo.pInputAssemblyState = &inputAssembly;
+		pipelineInfo.pViewportState = &viewportState;
+		pipelineInfo.pRasterizationState = &rasterizer;
+		pipelineInfo.pMultisampleState = &multisampling;
+		pipelineInfo.pDepthStencilState = &depthStencil;
+		pipelineInfo.pColorBlendState = &colorBlending;
+		pipelineInfo.pDynamicState = nullptr; // Optional
+		pipelineInfo.layout = outPipelineLayout;
+		pipelineInfo.renderPass = renderPass;
+		pipelineInfo.subpass = 0;
+		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
+		pipelineInfo.basePipelineIndex = -1; // Optional
+
+		res = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &outPipeline);
+		assert(res == VK_SUCCESS);
+
+		vkDestroyShaderModule(device, fragShader, nullptr);
+		vkDestroyShaderModule(device, vertShader, nullptr);
+	}
+
+	static void createRenderPass(VkRenderPass &outRenderPass, VkDevice device, VkFormat colorAttachmentFormat, VkImageLayout colroAttachmnetImagelayout, size_t colorAttachmentCnt,  bool depthAttachment)
+	{
+		vector< VkAttachmentDescription> attachmentDescriptions;
+		vector< VkAttachmentReference > colorReferences;
+		VkAttachmentReference depthReference = { colorAttachmentCnt, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+		for (size_t i = 0; i < colorAttachmentCnt; ++i)
+		{
+			VkAttachmentDescription attachmentDescription = {};
+			attachmentDescription.format = colorAttachmentFormat;
+			attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+			attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			attachmentDescription.finalLayout = colroAttachmnetImagelayout;
+
+			attachmentDescriptions.push_back(attachmentDescription);
+
+			VkAttachmentReference colorReference = { i, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+			colorReferences.push_back(colorReference);
+		}
+
+		if (depthAttachment)
+		{
+			VkAttachmentDescription attchmentDescription = {};
+			attchmentDescription.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+			attchmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+			attchmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			attchmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			attchmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attchmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			attchmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			attchmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+			attachmentDescriptions.push_back(attchmentDescription);
+		}
+
+		VkSubpassDescription subpassDescription = {};
+		subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpassDescription.colorAttachmentCount = colorReferences.size();
+		subpassDescription.pColorAttachments = &colorReferences[0];
+
+		if (depthAttachment) subpassDescription.pDepthStencilAttachment = &depthReference;
+		
+		// Use subpass dependencies for layout transitions
+		std::array<VkSubpassDependency, 1> dependencies;
+
+		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[0].dstSubpass = 0;
+		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+		// Create the actual renderpass
+		VkRenderPassCreateInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = static_cast<uint32_t>(attachmentDescriptions.size());
+		renderPassInfo.pAttachments = attachmentDescriptions.data();
+		renderPassInfo.subpassCount = 1;
+		renderPassInfo.pSubpasses = &subpassDescription;
+		renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+		renderPassInfo.pDependencies = dependencies.data();
+
+		auto res = vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass);
+
+		assert(res == VK_SUCCESS);
+	}
+
+	static void createRenderPassWithColorAndDepthAttachment(VkRenderPass &outRenderPass, VkDevice device, VkFormat imageFormat, VkImageLayout finalLayout)
+	{
+		createRenderPass(outRenderPass, device, imageFormat, finalLayout, 1, true);
+	}
 	static uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties)
 	{
 		VkPhysicalDeviceMemoryProperties memProperties;
@@ -139,7 +498,7 @@ public:
 		assert(res == VK_SUCCESS);
 	}
 
-	static void createTextureImage(VkPhysicalDevice physicalDevice, VkCommandPool commandPool, VkQueue graphicQueue, VkImage& outImage, VkDeviceMemory& outDeviceMemory, const char* imagePath, VkDevice device)
+	static void createTextureImage(VkPhysicalDevice physicalDevice, VkCommandPool commandPool, VkQueue graphicQueue, VkImage& outImage, VkDeviceMemory& outDeviceMemory, const char* imagePath, VkDevice device, VkFormat imageFormat )
 	{
 		int texWidth, texHeight, texChannels;
 		stbi_uc* pixels = stbi_load(imagePath, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -153,10 +512,11 @@ public:
 		createBuffer(stagingBuffer, stagingBufferMemory, physicalDevice, device, pixels, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 		stbi_image_free(pixels);
 
-		createImage(physicalDevice, device, texWidth, texHeight, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outImage, outDeviceMemory);
-		transitionImageLayout(device, commandPool, graphicQueue, outImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		//VK_FORMAT_R8G8B8A8_UNORM
+		createImage(physicalDevice, device, texWidth, texHeight, imageFormat , VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outImage, outDeviceMemory);
+		transitionImageLayout(device, commandPool, graphicQueue, outImage, imageFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		copyBufferToImage(device, commandPool, graphicQueue, stagingBuffer, outImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
-		transitionImageLayout(device, commandPool, graphicQueue, outImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		transitionImageLayout(device, commandPool, graphicQueue, outImage, imageFormat, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);

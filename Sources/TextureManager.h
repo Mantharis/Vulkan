@@ -45,7 +45,7 @@ public:
 			TextureData* newTexture = new TextureData();
 			newTexture->path = path;
 
-			VulkanHelpers::createTextureImage(m_PhysicalDevice, m_CommandPool, m_GraphicQueue, newTexture->image, newTexture->deviceMemory, path.c_str(), m_Device);
+			VulkanHelpers::createTextureImage(m_PhysicalDevice, m_CommandPool, m_GraphicQueue, newTexture->image, newTexture->deviceMemory, path.c_str(), m_Device, VK_FORMAT_R8G8B8A8_UNORM);
 			VulkanHelpers::createImageView(newTexture->imageView, m_Device, newTexture->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
 
 			TextureDataSharedPtr sharedPtr(newTexture, [this](TextureData* texData)

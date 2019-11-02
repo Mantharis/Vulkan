@@ -13,8 +13,6 @@
 
 using namespace std;
 
-
-
 struct MaterialUBO
 {
 	alignas(16) glm::vec3 diffuse;
@@ -492,7 +490,7 @@ public:
 		imageInfo.imageView = imageView;
 		imageInfo.sampler = sampler;
 
-		if (m_DescriptorInfo.size() < desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
+		if (m_DescriptorInfo.size() <= desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
 		m_DescriptorInfo[desc->binding] = imageInfo;
 	}
 
@@ -547,6 +545,7 @@ struct MaterialDescription
 	shared_ptr<const TextureData> m_SpecularTexture;
 	shared_ptr<const TextureData> m_NormalTexture;
 	shared_ptr<const TextureData> m_SpecularHighlightTexture;
+	shared_ptr<const TextureData> m_AoTexture;
 	shared_ptr<const Sampler> m_Sampler;
 	
 	DescriptorSet m_ShaderParams;
@@ -571,6 +570,8 @@ public:
 		m_DecriptorSetLayout->addDescriptor("specularTex", 2, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 		m_DecriptorSetLayout->addDescriptor("normalTex", 3, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 		m_DecriptorSetLayout->addDescriptor("specularHighlightTex", 4, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->addDescriptor("aoTex", 5, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		
 		m_DecriptorSetLayout->createDescriptorSetLayout();
 	}
 
@@ -591,7 +592,8 @@ public:
 			auto specularTexture = !material.specular_texname.empty() ? m_TextureManager.loadTexture(path + "/" + material.specular_texname): m_TextureManager.loadTexture(defaultPath + "/defaultSpecular.png");
 			auto specularHighlightTexture = !material.specular_highlight_texname.empty() ? m_TextureManager.loadTexture(path + "/" + material.specular_highlight_texname) : m_TextureManager.loadTexture(defaultPath + "/defaultSpecularExp.png");
 			auto normalTexture = !material.specular_highlight_texname.empty() ? m_TextureManager.loadTexture(path + "/" + material.bump_texname) : m_TextureManager.loadTexture(defaultPath + "/defaultNormal.png");
-
+			auto aoIt = material.unknown_parameter.find("map_Ao");
+			auto aoTexture = (aoIt!=end(material.unknown_parameter)) ? m_TextureManager.loadTexture(path + "/" + aoIt->second) : m_TextureManager.loadTexture(defaultPath + "/defaultAo.png");
 
 			MaterialUBO materialBuffer;
 			materialBuffer.diffuse.r = material.diffuse[0];
@@ -613,13 +615,15 @@ public:
 			DescriptorSet descriptorSet(m_DecriptorSetLayout);
 
 			descriptorSet.addBuffer("materialBuffer",buffer);
+
 			descriptorSet.addSampler("diffuseTex", diffuseTexture->imageView, m_Sampler->m_Sampler);
 			descriptorSet.addSampler("specularTex", specularTexture->imageView, m_Sampler->m_Sampler);
 			descriptorSet.addSampler("normalTex",normalTexture->imageView, m_Sampler->m_Sampler);
 			descriptorSet.addSampler("specularHighlightTex", specularHighlightTexture->imageView, m_Sampler->m_Sampler);
+			descriptorSet.addSampler("aoTex", aoTexture->imageView, m_Sampler->m_Sampler);
 			descriptorSet.createDescriptorSet();
 
-			MaterialDescription* newMaterial = new MaterialDescription{ move(diffuseTexture), move(specularTexture), move(normalTexture), move(specularHighlightTexture), m_Sampler, move(descriptorSet), move(buffer) };
+			MaterialDescription* newMaterial = new MaterialDescription{ move(diffuseTexture), move(specularTexture), move(normalTexture), move(specularHighlightTexture), move(aoTexture), m_Sampler, move(descriptorSet), move(buffer) };
 			newMaterial->m_Id = materialName;
 
 			shared_ptr<const MaterialDescription> sharedPtr(newMaterial, [this](MaterialDescription* matData)
