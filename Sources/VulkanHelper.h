@@ -43,20 +43,25 @@ class VulkanHelpers
 {
 public:
 
-	/*
-	//create color attachment
-	VulkanHelpers::createImage(physicalDevice, device, extent.width, extent.width, imageFormat,
-		VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		outFramebufferData.colorImage, outFramebufferData.colorDeviceMemory);
+	static float const Pi;
 
-	VulkanHelpers::createImageView(outFramebufferData.colorImageView, device, outFramebufferData.colorImage, imageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+	static float deg2Rad(float rad)
+	{
+		return rad * 2.0f * Pi / 360.0f;
+	}
 
-	//create depth attachement
-	VulkanHelpers::createImage(physicalDevice, device, extent.width, extent.width,
-		VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		outFramebufferData.depthImage, outFramebufferData.depthDeviceMemory);
+	static glm::mat4 preparePerspectiveProjectionMatrix(float aspect_ratio, float field_of_view, float near_plane, float far_plane)
+	{
+		float f = 1.0f / tan(deg2Rad(0.5f * field_of_view));
 
-	*/
+		glm::mat4 projectionMatrix;
+		projectionMatrix[0] = glm::vec4(f / aspect_ratio, 0.0f, 0.0f, 0.0f);
+		projectionMatrix[1] = glm::vec4(0.0f, -f, 0.0f, 0.0f);
+		projectionMatrix[2] = glm::vec4(0.0f, 0.0f, far_plane / (near_plane - far_plane), -1.0f);
+		projectionMatrix[3] = glm::vec4(f / aspect_ratio, 0.0f, (near_plane * far_plane) / (near_plane - far_plane), 0.0f);
+
+		return projectionMatrix;
+	}
 
 	static void createAttachmnent(AttachmentData &outAttachmentData, VkPhysicalDevice physicalDevice, VkDevice device, VkFormat imageFormat, VkImageUsageFlags imageUsageFlags, VkImageAspectFlags aspectFlags , VkExtent2D extent)
 	{
@@ -83,56 +88,7 @@ public:
 		assert(res == VK_SUCCESS);
 	}
 
-	static void createFramebufferWithColorAndDepth(FramebufferData& outFramebufferData, VkPhysicalDevice physicalDevice, VkDevice device, VkFormat imageFormat, VkExtent2D extent)
-	{
-		// Create a separate render pass for the offscreen rendering as it may differ from the one used for scene rendering
-		VulkanHelpers::createRenderPassWithColorAndDepthAttachment(outFramebufferData.renderPass, device, imageFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-		AttachmentData colorAttachment;
-		createAttachmnent(colorAttachment, physicalDevice, device, imageFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, extent);
-
-		AttachmentData depthAttachment;
-		createAttachmnent(depthAttachment, physicalDevice, device, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, extent);
-
-		//create frameBuffer from those attachements
-		vector<VkImageView> attachments;
-		attachments.push_back(colorAttachment.view);
-		attachments.push_back(depthAttachment.view);
-
-		outFramebufferData.colorAttachments.push_back(colorAttachment);
-		outFramebufferData.depthAttachment = depthAttachment;
-
-		createFramebuffer(outFramebufferData.framebuffer, outFramebufferData.renderPass, attachments, device, extent);
-	}
-
-	static void createFramebuffersForDefferedShading(FramebufferData& outFramebufferData, VkPhysicalDevice physicalDevice, VkDevice device, VkFormat imageFormat, VkExtent2D extent)
-	{
-		const int colorAttachmentCnt = 4;
-		// Create a separate render pass for the offscreen rendering as it may differ from the one used for scene rendering
-		VulkanHelpers::createRenderPass(outFramebufferData.renderPass, device, imageFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, colorAttachmentCnt, true);
-
-		vector<AttachmentData> colorAttachments;
-		colorAttachments.resize(colorAttachmentCnt);
-
-		for (auto& it : colorAttachments) createAttachmnent(it, physicalDevice, device, imageFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, extent);
-		
-		AttachmentData depthAttachment;
-		createAttachmnent(depthAttachment, physicalDevice, device, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, extent);
-
-		//create frameBuffer from those attachements
-		vector<VkImageView> attachments;
-
-		for (auto& it : colorAttachments) attachments.push_back(it.view);
-
-		attachments.push_back(depthAttachment.view);
-
-		outFramebufferData.colorAttachments = move(colorAttachments);
-		outFramebufferData.depthAttachment = depthAttachment;
 	
-		createFramebuffer(outFramebufferData.framebuffer, outFramebufferData.renderPass, attachments, device, extent);
-	}
-
-
 	template<typename T> static void createBuffer(VkBuffer& buffer, VkDeviceMemory& memory, VkPhysicalDevice physicalDevice, VkDevice device, T const* inputData, size_t inputSize, VkBufferUsageFlags bufferUsageFlag)
 	{
 		VkBufferCreateInfo bufferInfo = {};
@@ -174,11 +130,11 @@ public:
 		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 		samplerInfo.magFilter = VK_FILTER_LINEAR;
 		samplerInfo.minFilter = VK_FILTER_LINEAR;
-		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		samplerInfo.anisotropyEnable = VK_TRUE;
-		samplerInfo.maxAnisotropy = 16;
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.anisotropyEnable = VK_FALSE;
+		samplerInfo.maxAnisotropy = 1.0f;
 		samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
 		samplerInfo.unnormalizedCoordinates = VK_FALSE;
 		samplerInfo.compareEnable = VK_FALSE;
@@ -290,8 +246,13 @@ public:
 		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
 		colorBlending.logicOpEnable = VK_FALSE;
 		colorBlending.logicOp = VK_LOGIC_OP_COPY; // Optional
-		colorBlending.attachmentCount = colorBlendAttachments.size();
-		colorBlending.pAttachments = &colorBlendAttachments[0];
+
+		if (!colorBlendAttachments.empty())
+		{
+			colorBlending.attachmentCount = colorBlendAttachments.size();
+			colorBlending.pAttachments = &colorBlendAttachments[0];
+		}
+		
 		colorBlending.blendConstants[0] = 0.0f; // Optional
 		colorBlending.blendConstants[1] = 0.0f; // Optional
 		colorBlending.blendConstants[2] = 0.0f; // Optional
@@ -299,8 +260,13 @@ public:
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = shaderSet.descriptorSetLayout.size();
-		pipelineLayoutInfo.pSetLayouts = &shaderSet.descriptorSetLayout[0];
+
+		if (!shaderSet.descriptorSetLayout.empty())
+		{
+			pipelineLayoutInfo.setLayoutCount = shaderSet.descriptorSetLayout.size();
+			pipelineLayoutInfo.pSetLayouts = &shaderSet.descriptorSetLayout[0];
+		}
+	
 
 		if (!shaderSet.pushConstant.empty())
 		{
@@ -352,11 +318,12 @@ public:
 		vkDestroyShaderModule(device, vertShader, nullptr);
 	}
 
-	static void createRenderPass(VkRenderPass &outRenderPass, VkDevice device, VkFormat colorAttachmentFormat, VkImageLayout colroAttachmnetImagelayout, size_t colorAttachmentCnt,  bool depthAttachment)
+	static void createRenderPass(VkRenderPass &outRenderPass, VkDevice device, VkFormat colorAttachmentFormat, VkImageLayout colroAttachmnetImagelayout, size_t colorAttachmentCnt,  bool depthAttachment, VkImageLayout depthAttachmentImageLayout)
 	{
 		vector< VkAttachmentDescription> attachmentDescriptions;
 		vector< VkAttachmentReference > colorReferences;
 		VkAttachmentReference depthReference = { colorAttachmentCnt, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
 
 		for (size_t i = 0; i < colorAttachmentCnt; ++i)
 		{
@@ -379,25 +346,32 @@ public:
 		if (depthAttachment)
 		{
 			VkAttachmentDescription attchmentDescription = {};
-			attchmentDescription.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+			attchmentDescription.format = VK_FORMAT_D16_UNORM;
 			attchmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
 			attchmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			attchmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			attchmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE; // VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			attchmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			attchmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			attchmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			attchmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			attchmentDescription.finalLayout = depthAttachmentImageLayout;
 
 			attachmentDescriptions.push_back(attchmentDescription);
 		}
 
+
+
 		VkSubpassDescription subpassDescription = {};
 		subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		subpassDescription.colorAttachmentCount = colorReferences.size();
-		subpassDescription.pColorAttachments = &colorReferences[0];
 
+		if (!colorReferences.empty())
+		{
+			subpassDescription.colorAttachmentCount = colorReferences.size();
+			subpassDescription.pColorAttachments = &colorReferences[0];
+		}
+		
 		if (depthAttachment) subpassDescription.pDepthStencilAttachment = &depthReference;
 		
+		/*
 		// Use subpass dependencies for layout transitions
 		std::array<VkSubpassDependency, 1> dependencies;
 
@@ -408,6 +382,26 @@ public:
 		dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+		*/
+
+		// Use subpass dependencies for layout transitions
+		std::array<VkSubpassDependency, 2> dependencies;
+
+		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[0].dstSubpass = 0;
+		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+		dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+		dependencies[1].srcSubpass = 0;
+		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
 		// Create the actual renderpass
 		VkRenderPassCreateInfo renderPassInfo = {};
@@ -419,14 +413,24 @@ public:
 		renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
 		renderPassInfo.pDependencies = dependencies.data();
 
+
 		auto res = vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass);
 
 		assert(res == VK_SUCCESS);
+
+
+
+
+
+
+
+
+
 	}
 
 	static void createRenderPassWithColorAndDepthAttachment(VkRenderPass &outRenderPass, VkDevice device, VkFormat imageFormat, VkImageLayout finalLayout)
 	{
-		createRenderPass(outRenderPass, device, imageFormat, finalLayout, 1, true);
+		createRenderPass(outRenderPass, device, imageFormat, finalLayout, 1, true, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 	}
 	static uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties)
 	{
@@ -652,3 +656,5 @@ private:
 		endSingleTimeCommands(device, commandPool, graphicQueue, commandBuffer);
 	}
 };
+
+float const VulkanHelpers::Pi = 3.14159265358979323846f;

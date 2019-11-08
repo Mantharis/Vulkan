@@ -12,6 +12,7 @@ layout(location = 0) out vec4 outAlbedo;
 layout(location = 1) out vec4 outPos;
 layout(location = 2) out vec4 outNormal;
 layout(location = 3) out vec4 outMetallicRoughnessAo;
+//layout(location = 4) out float outDepth;
 
 layout( set =0, binding = 0) uniform MaterialUBO 
 {
@@ -40,4 +41,6 @@ void main()
 	outNormal.a = 0.0;
 	
 	outMetallicRoughnessAo.rgb = vec3(texture(metallicMap, fragTexCoord).r, texture(roughnessMap, fragTexCoord).r, texture(aoMap, fragTexCoord).r);
+	
+	//outDepth=0.0;
 }  

@@ -33,37 +33,20 @@
 
 #include "Window.h"
 #include "VulkanInstance.h"
+#include "DeferredRenderer.h"
 
  using namespace std;
 
- float const Pi = 3.14159265358979323846f;
 
- float deg2Rad(float rad)
- {
-	 return rad * 2.0f * Pi / 360.0f;
- }
-
- glm::mat4 preparePerspectiveProjectionMatrix(float aspect_ratio, float field_of_view, float near_plane, float far_plane) 
- {
-	 float f = 1.0f / tan(deg2Rad(0.5f * field_of_view));
-
-	 glm::mat4 projectionMatrix;
-	 projectionMatrix[0] = glm::vec4(f / aspect_ratio, 0.0f, 0.0f, 0.0f);
-	 projectionMatrix[1] = glm::vec4(0.0f, -f, 0.0f, 0.0f);
-	 projectionMatrix[2] = glm::vec4(0.0f, 0.0f, far_plane / (near_plane - far_plane), -1.0f);
-	 projectionMatrix[3] = glm::vec4(f / aspect_ratio, 0.0f, (near_plane * far_plane) / (near_plane - far_plane), 0.0f);
-
-	 return projectionMatrix;
- }
 
 
 class SceneObjectFactory
 {
 public:
-	SceneObjectFactory(VkPhysicalDevice physicalDevice, VkDevice device, VkCommandPool  commandPool, VkQueue graphicQueue)
+	SceneObjectFactory(VkPhysicalDevice physicalDevice, VkDevice device, VkCommandPool  commandPool, VkQueue graphicQueue, shared_ptr <DescriptorSetLayout> descriptorSetLayout)
 	{
 		m_TextureManager = make_unique<TextureManager>(physicalDevice, device, commandPool, graphicQueue);
-		m_MaterialManager = make_unique<MaterialManager>(*m_TextureManager, device, physicalDevice);
+		m_MaterialManager = make_unique<MaterialManager>(*m_TextureManager, device, physicalDevice, move(descriptorSetLayout));
 		m_ModelManager = make_unique<ModelManager>(physicalDevice, device, *m_MaterialManager);
 	}
 
@@ -103,19 +86,14 @@ struct SceneDescription
 {
 	SceneData m_Data;
 	Buffer m_UniformBuffer;
-
 	DescriptorSet m_DescriptorSet;
 
-	SceneDescription(VkPhysicalDevice physicalDevice, VkDevice device)
+	SceneDescription(VkPhysicalDevice physicalDevice, VkDevice device, shared_ptr<DescriptorSetLayout> descriptorSetLayout)
 		:m_UniformBuffer(physicalDevice, device, &m_Data, 1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT),
-		m_DescriptorSet(make_shared<DescriptorSetLayout>(device))
+		m_DescriptorSet(move(descriptorSetLayout))
 		//m_DescriptorSet(device, descriptorSetLayout, vector<variant< VkDescriptorImageInfo, VkDescriptorBufferInfo>>(1, VkDescriptorBufferInfo{ m_UniformBuffer.buffer, 0, sizeof(SceneData)}) )
 	{
-		auto descSetLayout =m_DescriptorSet.getDescriptorSetlayout();
-
-		descSetLayout->addDescriptor("sceneBuffer", 0, VkShaderStageFlagBits::VK_SHADER_STAGE_VERTEX_BIT, VkDescriptorType::VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-		descSetLayout->createDescriptorSetLayout();
-
+	
 		m_DescriptorSet.addBuffer("sceneBuffer", m_UniformBuffer);
 		m_DescriptorSet.createDescriptorSet();
 	}
@@ -132,13 +110,13 @@ struct SceneContext
 	SceneObjectManager m_SceneObjectManager;
 	glm::mat4x4 m_ProjectionMatrix;
 	Camera m_Camera;
+	Camera m_Light;
 
 	VkPipelineLayout m_PipelineLayout;
 	VkPipeline m_GraphicsPipeline;
 
 	void recordCommandBuffer(VkCommandBuffer commandBuffer)
 	{
-
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
 
 		//static glm::vec3 moveDir(1.0f, 3.0f, 2.0f);
@@ -182,8 +160,8 @@ bool mouseButtonLeftDown = false;
 double mouseX, mouseY;
 Camera* camera = nullptr;
 
-size_t resX = 1280;
-size_t resY = 1024;
+size_t resX = 512;
+size_t resY = 512;
 
 
 void key_callback(Window& window, int key, int scancode, int action, int mods)
@@ -228,56 +206,74 @@ void cursor_position_callback(Window& window, double xpos, double ypos)
 }
 
 
-
 int main() 
 {
-	
 	Window window(resX, resY, "Vulkan");
 	VulcanInstance vulcanInstance(window.getWindow(), resX, resY);
 
 
-	//=============================================
-	//=============================================
-	shared_ptr<DescriptorSetLayout> setlayoutTest = make_shared< DescriptorSetLayout>(vulcanInstance.m_Device);
-	setlayoutTest->addDescriptor("metalicRoughnessAo",3, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	setlayoutTest->addDescriptor("normal", 2, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	setlayoutTest->addDescriptor("albedo", 1, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	setlayoutTest->addDescriptor("pos", 0, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	setlayoutTest->createDescriptorSetLayout();
+	//===============================
+	VkRenderPass shadowRenderpass;
+	VulkanHelpers::createRenderPass(shadowRenderpass, vulcanInstance.m_Device, VkFormat::VK_FORMAT_END_RANGE, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, true, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
 
+	uint32_t shadowTexSize = 512;
+	AttachmentData shadowAttachment;
 
-	shared_ptr<DescriptorSet> descSetTest = make_shared< DescriptorSet>(setlayoutTest);
+	VulkanHelpers::createAttachmnent(shadowAttachment, vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, VK_FORMAT_D16_UNORM, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, { shadowTexSize, shadowTexSize });
 
-	FramebufferData offscreenFramebuffer;
-
-	//VulkanHelpers::createFramebufferWithColorAndDepth(offscreenFramebuffer, vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, vulcanInstance.m_SwapChainImageFormat, vulcanInstance.m_SwapChainExtent);
-	VulkanHelpers::createFramebuffersForDefferedShading(offscreenFramebuffer, vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, VK_FORMAT_R16G16B16A16_SFLOAT, vulcanInstance.m_SwapChainExtent);
-
+	//FRAMEBUFFER
+	vector<VkImageView> attachments;
+	attachments.push_back(shadowAttachment.view);
 	
-	auto testSampler = shared_ptr<const Sampler>(new Sampler(vulcanInstance.m_Device));
 
-	descSetTest->addSampler("albedo", offscreenFramebuffer.colorAttachments[0].view, testSampler->m_Sampler);
-	descSetTest->addSampler("pos", offscreenFramebuffer.colorAttachments[1].view, testSampler->m_Sampler);
-	descSetTest->addSampler("normal", offscreenFramebuffer.colorAttachments[2].view, testSampler->m_Sampler);
-	descSetTest->addSampler("metalicRoughnessAo", offscreenFramebuffer.colorAttachments[3].view, testSampler->m_Sampler);
-
-	descSetTest->createDescriptorSet();
+	VkFramebuffer shadowFramebuffer;
+	VulkanHelpers::createFramebuffer( shadowFramebuffer, shadowRenderpass, attachments, vulcanInstance.m_Device, { shadowTexSize, shadowTexSize });
 
 
-	VkPipelineLayout pipelineLayoutTest;
-	VkPipeline graphicPipelineTest;
+	//DESCRIPTOR SET
+	shared_ptr<DescriptorSetLayout> descriptorSetLayout = make_shared< DescriptorSetLayout>(vulcanInstance.m_Device);
+	descriptorSetLayout->createDescriptorSetLayout();
 
+	static shared_ptr< DescriptorSet> descriptorSet = make_shared< DescriptorSet>(descriptorSetLayout);
+	descriptorSet->createDescriptorSet();
+
+	VkDescriptorSet shadowDecriptorSet = descriptorSet->getDescriptorSet();
+
+	//GRAPHIC PIPELINE
+	ShaderSet shaderData;
+	shaderData.vertexInputBindingDescription = Vertex::getBindingDescription();
+	shaderData.vertexShaderPath = string("./../Shaders/shadowShaderVert.spv");
+	shaderData.fragmentShaderPath = string("./../Shaders/shadowShaderFrag.spv");
+	shaderData.pushConstant.resize(1);
+	shaderData.pushConstant[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderData.pushConstant[0].offset = 0;
+	shaderData.pushConstant[0].size = sizeof(glm::mat4) * 3;
+	shaderData.descriptorSetLayout.push_back(descriptorSet->getDescriptorSetlayout()->getLayout());
 	
-	{
-		ShaderSet shaderData;
+	for (auto& attribute : Vertex::getAttributeDescriptions())
+		shaderData.vertexInputAttributeDescription.push_back(attribute);
 
-		shaderData.vertexInputBindingDescription = {};
-		shaderData.vertexShaderPath = string("./../Shaders/defferedShader2ndPassVert.spv");
-		shaderData.fragmentShaderPath = string("./../Shaders/defferedShader2ndPassFrag.spv");
-		shaderData.descriptorSetLayout.push_back(setlayoutTest->getLayout());
 
-		VulkanHelpers::createGraphicsPipeline(vulcanInstance.m_Device, vulcanInstance.m_RenderPass, 1, vulcanInstance.m_SwapChainExtent, shaderData, pipelineLayoutTest, graphicPipelineTest);
-	}
+	/*
+	//GRAPHIC PIPELINE
+	ShaderSet shaderData;
+	shaderData.vertexInputBindingDescription = {};
+	shaderData.vertexShaderPath = string("./../Shaders/shadowShaderVert.spv");
+	shaderData.fragmentShaderPath = string("./../Shaders/shadowShaderFrag.spv");
+	shaderData.descriptorSetLayout.push_back(descriptorSet->getDescriptorSetlayout()->getLayout());
+	*/
+
+	VkPipeline shadowGraphicPipeline;
+	VkPipelineLayout shadowPipelineLayout;
+	VulkanHelpers::createGraphicsPipeline(vulcanInstance.m_Device, shadowRenderpass, 0, { shadowTexSize, shadowTexSize }, shaderData, shadowPipelineLayout, shadowGraphicPipeline);
+
+	//TODO
+	DeferredRender::depth = shadowAttachment.view; // offscreenPass.depth.view;//  shadowAttachment.view;
+
+	//===============================
+
+	DeferredRender deferredRender(vulcanInstance.m_Device, vulcanInstance.m_PhysicalDevice, vulcanInstance.m_SwapChainExtent, vulcanInstance.m_SwapChainImageFormat);
+
 
 
 	//============================================
@@ -286,31 +282,18 @@ int main()
 
 	SceneContext sceneContext;
 
-	sceneContext.m_SceneObjectFactory = make_unique<SceneObjectFactory>(vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, vulcanInstance.m_CommandPool, vulcanInstance.m_GraphicQueue);
-	sceneContext.m_SceneDescription = make_unique<SceneDescription>(vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device);
-
-	ShaderSet shaderData;
-
-	for (auto& attribute : Vertex::getAttributeDescriptions())
-		shaderData.vertexInputAttributeDescription.push_back(attribute);
-
-	shaderData.vertexInputBindingDescription = Vertex::getBindingDescription();
-	shaderData.vertexShaderPath = string("./../Shaders/vert.spv");
-	//shaderData.fragmentShaderPath = string("./../Shaders/frag2.spv");
-	shaderData.fragmentShaderPath = string("./../Shaders/defferedShader1stPass.spv");
-	shaderData.pushConstant.resize(1);
-	shaderData.pushConstant[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	shaderData.pushConstant[0].offset = 0;
-	shaderData.pushConstant[0].size = sizeof(glm::mat4) * 3;
-	shaderData.descriptorSetLayout.push_back(sceneContext.m_SceneObjectFactory->getMaterialManager()->getDescriptorSetLayout()->getLayout());
-	shaderData.descriptorSetLayout.push_back(sceneContext.m_SceneDescription->m_DescriptorSet.getDescriptorSetlayout()->getLayout());
-
-	VulkanHelpers::createGraphicsPipeline(vulcanInstance.m_Device, offscreenFramebuffer.renderPass, 4, vulcanInstance.m_SwapChainExtent, shaderData, sceneContext.m_PipelineLayout, sceneContext.m_GraphicsPipeline);
-	
-	sceneContext.m_Camera.setPos(glm::vec3(0.0f, 100.0f, 300.0f));
+	sceneContext.m_SceneObjectFactory = make_unique<SceneObjectFactory>(vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, vulcanInstance.m_CommandPool, vulcanInstance.m_GraphicQueue, deferredRender.m_1stPassDescriptorSetLayout);
+	sceneContext.m_SceneDescription = make_unique<SceneDescription>(vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, deferredRender.m_1stPassDescriptorSetLayout2);
+	sceneContext.m_GraphicsPipeline = deferredRender.m_1stPassPipeline;
+	sceneContext.m_GraphicsPipeline = deferredRender.m_1stPassPipeline;
+	sceneContext.m_PipelineLayout = deferredRender.m_1stPassPipelineLayout;
+	sceneContext.m_Camera.setPos(glm::vec3(0.0f, 0.0f, 200.0f));
 	sceneContext.m_Camera.setDir(glm::vec3(0.0f, 0.0f, -1.0f));
-	sceneContext.m_ProjectionMatrix = preparePerspectiveProjectionMatrix((float)resX / resY, 60, 1.0f, 10000.0f);
 
+	sceneContext.m_Light.setPos(glm::vec3(0.0f, 200.0f, 200.0f));
+	sceneContext.m_Light.setDir(glm::vec3(0.0f, -1.0f, -1.0f));
+	
+	sceneContext.m_ProjectionMatrix = VulkanHelpers::preparePerspectiveProjectionMatrix((float)resX / resY, 60, 1.0f, 10000.0f);
 
 	camera = &sceneContext.m_Camera;
 
@@ -333,7 +316,7 @@ int main()
 		mat[0][0] = mat[1][1] = mat[2][2] = 100.0f;
 		mat[3][3] = 1.0f;
 
-		mat[3][0] = 100.0f;
+		mat[3][0] = 0.0f;
 
 		sceneContext.m_SceneObjectManager.insert(move(obj));
 	}
@@ -386,32 +369,80 @@ int main()
 
 		window.pollEvents();
 
-		vulcanInstance.drawFrame([&offscreenFramebuffer, &sceneContext, &vulcanInstance, &descSetTest, &pipelineLayoutTest, &graphicPipelineTest](VkCommandBuffer commandBuffer, VkFramebuffer frameBuffer)
+
+
+		vulcanInstance.drawFrame([&sceneContext, &deferredRender, 
+			 shadowRenderpass, shadowFramebuffer, shadowTexSize, shadowGraphicPipeline, shadowPipelineLayout, shadowDecriptorSet](VkCommandBuffer commandBuffer, VkFramebuffer frameBuffer)
 			{
 				VkCommandBufferBeginInfo beginInfo = {};
 				beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 				beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 				beginInfo.pInheritanceInfo = nullptr; // Optional
 
+				
 				auto res = vkBeginCommandBuffer(commandBuffer, &beginInfo);
 				assert(res == VK_SUCCESS);
 
 				
 				{
+					array<VkClearValue, 1> clearValues = {};
+					clearValues[0].depthStencil = { 1.0f, 0 };
+				
+					VkRenderPassBeginInfo renderPassInfo = {};
+					renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+					renderPassInfo.renderPass =  shadowRenderpass;
+					renderPassInfo.framebuffer =   shadowFramebuffer;
+					renderPassInfo.renderArea.offset = { 0, 0 };
+					renderPassInfo.renderArea.extent = { shadowTexSize, shadowTexSize };
+					renderPassInfo.clearValueCount = clearValues.size();
+					renderPassInfo.pClearValues = &clearValues[0];
+				
+					vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+				
+					vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowGraphicPipeline);
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipelineLayout, 0, 1, &shadowDecriptorSet, 0, nullptr);
+					
+					
+					sceneContext.m_SceneObjectManager.enumerate([&](SceneObject* sceneObj)
+						{
+							array<glm::mat4, 3> matrices = { sceneContext.m_ProjectionMatrix, sceneContext.m_Light.getInvMatrix(), sceneObj->getMatrix() };
+							vkCmdPushConstants(commandBuffer, shadowPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(matrices), &matrices[0]);
+					
+							VisualComponent const* visualComp = sceneObj->findComponent<VisualComponent>();
+							if (visualComp)
+							{
+								for (size_t i = 0; i < visualComp->m_ModelData->meshes.size(); ++i)
+								{
+									VkDeviceSize offsets[] = { 0 };
+									vkCmdBindVertexBuffers(commandBuffer, 0, 1, &visualComp->m_ModelData->meshes[i].vertexBufffer, offsets);
+					
+									vkCmdBindIndexBuffer(commandBuffer, visualComp->m_ModelData->meshes[i].indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+									vkCmdDrawIndexed(commandBuffer, visualComp->m_ModelData->meshes[i].indexBufferSize, 1, 0, 0, 0);
+								}
+							}
+							
+						});
+						
+					vkCmdEndRenderPass(commandBuffer);
+				}
+				
+				
+				{
 					array<VkClearValue, 5> clearValues = {};
-					clearValues[0].color = { 72.0f / 255.0f, 201.0f / 255.0f, 176.0f / 255.0f, 1.0f };
-					clearValues[1].color = { 72.0f / 255.0f, 201.0f / 255.0f, 176.0f / 255.0f, 1.0f };
-					clearValues[2].color = { 72.0f / 255.0f, 201.0f / 255.0f, 176.0f / 255.0f, 1.0f };
-					clearValues[3].color = { 72.0f / 255.0f, 201.0f / 255.0f, 176.0f / 255.0f, 1.0f };
+					clearValues[0].color ={0.0f, 0.0f, 0.0f, 1.0f };
+					clearValues[1].color ={0.0f, 0.0f, 0.0f, 1.0f };
+					clearValues[2].color ={0.0f, 0.0f, 0.0f, 1.0f };
+					clearValues[3].color ={0.0f, 0.0f, 0.0f, 1.0f };
 					clearValues[4].depthStencil = { 1.0f, 0 };
 
 					VkRenderPassBeginInfo renderPassInfo = {};
 					renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 					
-					renderPassInfo.renderPass = offscreenFramebuffer.renderPass;
-					renderPassInfo.framebuffer = offscreenFramebuffer.framebuffer;
+					renderPassInfo.renderPass = deferredRender.m_1stRenderPass;
+					renderPassInfo.framebuffer = deferredRender.m_1stFramebuffer;
+
 					renderPassInfo.renderArea.offset = { 0, 0 };
-					renderPassInfo.renderArea.extent = vulcanInstance.m_SwapChainExtent;
+					renderPassInfo.renderArea.extent = deferredRender.m_Extent;
 					renderPassInfo.clearValueCount = clearValues.size();
 					renderPassInfo.pClearValues = &clearValues[0];
 
@@ -424,25 +455,38 @@ int main()
 
 			
 				{
-					array<VkClearValue, 5> clearValues = {};
-					clearValues[0].color = { 72.0f / 255.0f, 201.0f / 255.0f, 176.0f / 255.0f, 1.0f };
+					array<VkClearValue, 2> clearValues = {};
+					clearValues[0].color = {0.0f, 0.0f, 0.0f, 1.0f };
 					clearValues[1].depthStencil = { 1.0f, 0 };
 
 
 					VkRenderPassBeginInfo renderPassInfo = {};
 					renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					renderPassInfo.renderPass = vulcanInstance.m_RenderPass;
+					renderPassInfo.renderPass = deferredRender.m_2ndRenderPass;
 					renderPassInfo.framebuffer = frameBuffer;
 					renderPassInfo.renderArea.offset = { 0, 0 };
-					renderPassInfo.renderArea.extent = vulcanInstance.m_SwapChainExtent;
+					renderPassInfo.renderArea.extent = deferredRender.m_Extent;
 					renderPassInfo.clearValueCount = clearValues.size();
 					renderPassInfo.pClearValues = &clearValues[0];
 
+
+					//==================
+					LightParamUBO lightParam;
+
+				
+
+					lightParam.viewProj = sceneContext.m_ProjectionMatrix * sceneContext.m_Light.getInvMatrix() * sceneContext.m_Camera.getMatrix();
+					lightParam.viewSpacePos = glm::vec3(  sceneContext.m_Camera.getInvMatrix() * sceneContext.m_Light.getMatrix()[3]);
+					lightParam.color = glm::vec3(100000.0f);
+
+					deferredRender.m_lightParamBuffer->updateBuffer(&lightParam, 1);
+					//==================
+
 					vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-					VkDescriptorSet  descSet = descSetTest->getDescriptorSet();
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayoutTest, 0, 1, &descSet, 0, NULL);
-					vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicPipelineTest);
+					VkDescriptorSet  descSet = deferredRender.m_2ndPassDescriptorSet->getDescriptorSet();
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, deferredRender.m_2ndPassPipelineLayout, 0, 1, &descSet, 0, NULL);
+					vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, deferredRender.m_2ndPassPipeline);
 					vkCmdDraw(commandBuffer, 6, 1, 0, 0);
 
 					vkCmdEndRenderPass(commandBuffer);

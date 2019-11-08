@@ -8,11 +8,9 @@ using namespace std;
 
 class VisualComponent : public IComponent
 {
-private:
+public:
 
 	ModelDataSharedPtr m_ModelData;
-
-public:
 
 	virtual ComponentType GetComponentType() override
 	{
@@ -43,5 +41,6 @@ public:
 			vkCmdDrawIndexed(commandBuffer, m_ModelData->meshes[i].indexBufferSize, 1, 0, 0, 0);
 		}
 	}
+
 
 };

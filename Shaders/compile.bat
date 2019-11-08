@@ -5,6 +5,9 @@ cmd /C ""C:/SDK programming/VulkanSDK/1.1.121.2/Bin32/glslc.exe"" shader2.frag -
 cmd /C ""C:/SDK programming/VulkanSDK/1.1.121.2/Bin32/glslc.exe"" ssShader.vert -o ssShaderVert.spv
 cmd /C ""C:/SDK programming/VulkanSDK/1.1.121.2/Bin32/glslc.exe"" ssShader.frag -o ssShaderFrag.spv
 
+cmd /C ""C:/SDK programming/VulkanSDK/1.1.121.2/Bin32/glslc.exe"" shadowShader.vert -o shadowShaderVert.spv
+cmd /C ""C:/SDK programming/VulkanSDK/1.1.121.2/Bin32/glslc.exe"" shadowShader.frag -o shadowShaderFrag.spv
+
 cmd /C ""C:/SDK programming/VulkanSDK/1.1.121.2/Bin32/glslc.exe"" defferedShader2ndPass.vert -o defferedShader2ndPassVert.spv
 cmd /C ""C:/SDK programming/VulkanSDK/1.1.121.2/Bin32/glslc.exe"" defferedShader2ndPass.frag -o defferedShader2ndPassFrag.spv
 

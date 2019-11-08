@@ -347,8 +347,12 @@ public:
 
 		VkDescriptorSetLayoutCreateInfo layoutInfo = {};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		layoutInfo.bindingCount = bindings.size();
-		layoutInfo.pBindings = &bindings[0];
+
+		if (!bindings.empty())
+		{
+			layoutInfo.bindingCount = bindings.size();
+			layoutInfo.pBindings = &bindings[0];
+		}
 
 		auto res = vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
 		assert(res == VK_SUCCESS);
@@ -477,16 +481,20 @@ public:
 				descriptorWriteSet.push_back(newDescriptorSet);
 			});
 
-		vkUpdateDescriptorSets(device, descriptorWriteSet.size(), &descriptorWriteSet[0], 0, nullptr);
+		if (!descriptorWriteSet.empty())
+		{
+			vkUpdateDescriptorSets(device, descriptorWriteSet.size(), &descriptorWriteSet[0], 0, nullptr);
+		}
+		
 	}
 
-	void addSampler(string const& paramName, VkImageView imageView, VkSampler sampler)
+	void addSampler(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout)
 	{
 		auto desc = m_DescriptorSetLayout->getDescriptor(paramName);
 		assert(desc != nullptr && desc->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 
 		VkDescriptorImageInfo imageInfo = {};
-		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo.imageLayout = imageLayout;
 		imageInfo.imageView = imageView;
 		imageInfo.sampler = sampler;
 
@@ -558,21 +566,13 @@ class MaterialManager
 {
 public:
 
-	MaterialManager(TextureManager& textureManager, VkDevice device, VkPhysicalDevice physicalDevice) :m_TextureManager(textureManager)
+	MaterialManager(TextureManager& textureManager, VkDevice device, VkPhysicalDevice physicalDevice, shared_ptr <DescriptorSetLayout> descriptorSetLayout) :m_TextureManager(textureManager)
 	{
 		m_Device = device;
 		m_PhysicalDevice = physicalDevice;
 		m_Sampler = shared_ptr<const Sampler>(new Sampler(m_Device));
 
-		m_DecriptorSetLayout = make_shared<DescriptorSetLayout>(device);
-		m_DecriptorSetLayout->addDescriptor("materialBuffer", 0, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-		m_DecriptorSetLayout->addDescriptor("diffuseTex", 1, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-		m_DecriptorSetLayout->addDescriptor("specularTex", 2, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-		m_DecriptorSetLayout->addDescriptor("normalTex", 3, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-		m_DecriptorSetLayout->addDescriptor("specularHighlightTex", 4, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-		m_DecriptorSetLayout->addDescriptor("aoTex", 5, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-		
-		m_DecriptorSetLayout->createDescriptorSetLayout();
+		m_DecriptorSetLayout = move(descriptorSetLayout);
 	}
 
 	shared_ptr<const MaterialDescription> createMaterial(tinyobj::material_t const& material, const string& path)
@@ -616,11 +616,11 @@ public:
 
 			descriptorSet.addBuffer("materialBuffer",buffer);
 
-			descriptorSet.addSampler("diffuseTex", diffuseTexture->imageView, m_Sampler->m_Sampler);
-			descriptorSet.addSampler("specularTex", specularTexture->imageView, m_Sampler->m_Sampler);
-			descriptorSet.addSampler("normalTex",normalTexture->imageView, m_Sampler->m_Sampler);
-			descriptorSet.addSampler("specularHighlightTex", specularHighlightTexture->imageView, m_Sampler->m_Sampler);
-			descriptorSet.addSampler("aoTex", aoTexture->imageView, m_Sampler->m_Sampler);
+			descriptorSet.addSampler("diffuseTex", diffuseTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			descriptorSet.addSampler("specularTex", specularTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			descriptorSet.addSampler("normalTex",normalTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			descriptorSet.addSampler("specularHighlightTex", specularHighlightTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			descriptorSet.addSampler("aoTex", aoTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			descriptorSet.createDescriptorSet();
 
 			MaterialDescription* newMaterial = new MaterialDescription{ move(diffuseTexture), move(specularTexture), move(normalTexture), move(specularHighlightTexture), move(aoTexture), m_Sampler, move(descriptorSet), move(buffer) };
