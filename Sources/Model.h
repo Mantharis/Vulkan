@@ -31,41 +31,15 @@ struct MeshData
 		VulkanHelpers::createBuffer(indexBuffer, indexBufferMemory, physicalDevice, device, &iData[0], iData.size(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 	}
 
-	~MeshData()
-	{
-		destroy();
-	}
-
-	MeshData& operator=(MeshData&& obj)
-	{
-		destroy();
-		*this = obj;
-		obj.m_Device = VK_NULL_HANDLE;
-
-		return *this;
-	}
-
-	MeshData(MeshData&& obj)
-	{
-		*this = move(obj);
-	}
+	~MeshData();
+	MeshData& operator=(MeshData&& obj);
+	MeshData(MeshData&& obj);
 
 private:
 	MeshData& operator=(MeshData const&) = default;
 	MeshData(MeshData const&) = default;
 
-	void destroy()
-	{
-		if (m_Device == VK_NULL_HANDLE) return;
-
-		vkDestroyBuffer(m_Device, vertexBufffer, nullptr);
-		vkFreeMemory(m_Device, vertexBufferMemory, nullptr);
-
-		vkDestroyBuffer(m_Device, indexBuffer, nullptr);
-		vkFreeMemory(m_Device, indexBufferMemory, nullptr);
-
-		m_Device = VK_NULL_HANDLE;
-	}
+	void destroy();
 };
 
 struct ModelData

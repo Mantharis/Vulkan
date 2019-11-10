@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <vector>
 #include <glm/mat4x4.hpp>
 
 using namespace std;
@@ -22,15 +23,8 @@ public:
 class SceneObject
 {
 public:
-	void addComponent(unique_ptr<IComponent> comp)
-	{
-		m_Components.push_back(move(comp));
-	}
-
-	glm::mat4& getMatrix()
-	{
-		return m_Matrix;
-	}
+	void addComponent(unique_ptr<IComponent> comp);
+	glm::mat4& getMatrix();
 
 	template<typename COMP> COMP* findComponent()
 	{

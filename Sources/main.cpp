@@ -34,6 +34,7 @@
 #include "Window.h"
 #include "VulkanInstance.h"
 #include "DeferredRenderer.h"
+#include "ShadowRenderer.h"
 
  using namespace std;
 
@@ -110,7 +111,7 @@ struct SceneContext
 	SceneObjectManager m_SceneObjectManager;
 	glm::mat4x4 m_ProjectionMatrix;
 	Camera m_Camera;
-	Camera m_Light;
+	vector<Camera> m_Lights;
 
 	VkPipelineLayout m_PipelineLayout;
 	VkPipeline m_GraphicsPipeline;
@@ -160,8 +161,8 @@ bool mouseButtonLeftDown = false;
 double mouseX, mouseY;
 Camera* camera = nullptr;
 
-size_t resX = 512;
-size_t resY = 512;
+unsigned int resX = 1024;
+unsigned int resY = 1024;
 
 
 void key_callback(Window& window, int key, int scancode, int action, int mods)
@@ -176,7 +177,7 @@ void mouse_button_callback(Window& window, int button, int action, int mods)
 	{
 
 		mouseButtonLeftDown = true;
-		glfwSetCursorPos(&window.getWindow(), resX / 2, resY / 2);
+		glfwSetCursorPos(&window.getWindow(), static_cast<double>(resX / 2), static_cast<double>(resY / 2));
 		glfwSetInputMode(&window.getWindow(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 		mouseX = 400.0f;
@@ -187,7 +188,7 @@ void mouse_button_callback(Window& window, int button, int action, int mods)
 	{
 		mouseButtonLeftDown = false;
 		glfwSetInputMode(&window.getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-		glfwSetCursorPos(&window.getWindow(), resX / 2, resY / 2);
+		glfwSetCursorPos(&window.getWindow(), static_cast<double>(resX / 2), static_cast<double>(resY / 2));
 	}
 }
 
@@ -195,8 +196,8 @@ void cursor_position_callback(Window& window, double xpos, double ypos)
 {
 	if (mouseButtonLeftDown)
 	{
-		float diffX = xpos - mouseX;
-		float diffY = ypos - mouseY;
+		float diffX = static_cast<float>(xpos - mouseX);
+		float diffY = static_cast<float>(ypos - mouseY);
 
 		mouseX = xpos;
 		mouseY = ypos;
@@ -212,72 +213,8 @@ int main()
 	VulcanInstance vulcanInstance(window.getWindow(), resX, resY);
 
 
-	//===============================
-	VkRenderPass shadowRenderpass;
-	VulkanHelpers::createRenderPass(shadowRenderpass, vulcanInstance.m_Device, VkFormat::VK_FORMAT_END_RANGE, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, true, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-
-	uint32_t shadowTexSize = 512;
-	AttachmentData shadowAttachment;
-
-	VulkanHelpers::createAttachmnent(shadowAttachment, vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, VK_FORMAT_D16_UNORM, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, { shadowTexSize, shadowTexSize });
-
-	//FRAMEBUFFER
-	vector<VkImageView> attachments;
-	attachments.push_back(shadowAttachment.view);
-	
-
-	VkFramebuffer shadowFramebuffer;
-	VulkanHelpers::createFramebuffer( shadowFramebuffer, shadowRenderpass, attachments, vulcanInstance.m_Device, { shadowTexSize, shadowTexSize });
-
-
-	//DESCRIPTOR SET
-	shared_ptr<DescriptorSetLayout> descriptorSetLayout = make_shared< DescriptorSetLayout>(vulcanInstance.m_Device);
-	descriptorSetLayout->createDescriptorSetLayout();
-
-	static shared_ptr< DescriptorSet> descriptorSet = make_shared< DescriptorSet>(descriptorSetLayout);
-	descriptorSet->createDescriptorSet();
-
-	VkDescriptorSet shadowDecriptorSet = descriptorSet->getDescriptorSet();
-
-	//GRAPHIC PIPELINE
-	ShaderSet shaderData;
-	shaderData.vertexInputBindingDescription = Vertex::getBindingDescription();
-	shaderData.vertexShaderPath = string("./../Shaders/shadowShaderVert.spv");
-	shaderData.fragmentShaderPath = string("./../Shaders/shadowShaderFrag.spv");
-	shaderData.pushConstant.resize(1);
-	shaderData.pushConstant[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	shaderData.pushConstant[0].offset = 0;
-	shaderData.pushConstant[0].size = sizeof(glm::mat4) * 3;
-	shaderData.descriptorSetLayout.push_back(descriptorSet->getDescriptorSetlayout()->getLayout());
-	
-	for (auto& attribute : Vertex::getAttributeDescriptions())
-		shaderData.vertexInputAttributeDescription.push_back(attribute);
-
-
-	/*
-	//GRAPHIC PIPELINE
-	ShaderSet shaderData;
-	shaderData.vertexInputBindingDescription = {};
-	shaderData.vertexShaderPath = string("./../Shaders/shadowShaderVert.spv");
-	shaderData.fragmentShaderPath = string("./../Shaders/shadowShaderFrag.spv");
-	shaderData.descriptorSetLayout.push_back(descriptorSet->getDescriptorSetlayout()->getLayout());
-	*/
-
-	VkPipeline shadowGraphicPipeline;
-	VkPipelineLayout shadowPipelineLayout;
-	VulkanHelpers::createGraphicsPipeline(vulcanInstance.m_Device, shadowRenderpass, 0, { shadowTexSize, shadowTexSize }, shaderData, shadowPipelineLayout, shadowGraphicPipeline);
-
-	//TODO
-	DeferredRender::depth = shadowAttachment.view; // offscreenPass.depth.view;//  shadowAttachment.view;
-
-	//===============================
-
-	DeferredRender deferredRender(vulcanInstance.m_Device, vulcanInstance.m_PhysicalDevice, vulcanInstance.m_SwapChainExtent, vulcanInstance.m_SwapChainImageFormat);
-
-
-
-	//============================================
-	//============================================
+	ShadowRenderer shadowRender(vulcanInstance.m_Device, vulcanInstance.m_PhysicalDevice, vulcanInstance.m_SwapChainExtent);
+	DeferredRender deferredRender(vulcanInstance.m_Device, vulcanInstance.m_PhysicalDevice, vulcanInstance.m_SwapChainExtent, vulcanInstance.m_SwapChainImageFormat, shadowRender.m_ShadowAttachment.view, vulcanInstance.m_RenderPass);
 
 
 	SceneContext sceneContext;
@@ -290,9 +227,25 @@ int main()
 	sceneContext.m_Camera.setPos(glm::vec3(0.0f, 0.0f, 200.0f));
 	sceneContext.m_Camera.setDir(glm::vec3(0.0f, 0.0f, -1.0f));
 
-	sceneContext.m_Light.setPos(glm::vec3(0.0f, 200.0f, 200.0f));
-	sceneContext.m_Light.setDir(glm::vec3(0.0f, -1.0f, -1.0f));
+	sceneContext.m_Lights.resize(2);
+
+	//sceneContext.m_Lights[2].setPos(glm::vec3(0.0f, 0.0f, 100.0f));
+	//sceneContext.m_Lights[2].setDir(glm::vec3(0, -1.0f, 0.0f));
+	//
+	//sceneContext.m_Lights[1].setPos(glm::vec3(-200.0f, 200.0f, 0.0f));
+	//sceneContext.m_Lights[1].setDir(glm::vec3(1.0f, -1.0f, 0.0f));
 	
+	//sceneContext.m_Lights[0].setPos(glm::vec3(200.0f, 200.0f, 0.0f));
+	//sceneContext.m_Lights[0].setDir(glm::vec3(-1.0f, -1.0f, 0.0f));
+
+	sceneContext.m_Lights[0].setPos(glm::vec3(0.0f, 200.0f, 200.0f));
+	sceneContext.m_Lights[0].setDir(glm::vec3(0.0f, -1.0f, -1.0f));
+
+
+	sceneContext.m_Lights[1].setPos(glm::vec3(0.0f, 250.0f, 100.0f));
+	sceneContext.m_Lights[1].setDir(glm::vec3(0.0f, -1.0f, -1.0f));
+
+
 	sceneContext.m_ProjectionMatrix = VulkanHelpers::preparePerspectiveProjectionMatrix((float)resX / resY, 60, 1.0f, 10000.0f);
 
 	camera = &sceneContext.m_Camera;
@@ -366,131 +319,202 @@ int main()
 
 	while (!window.shouldClose())
 	{
-
 		window.pollEvents();
 
-
-
-		vulcanInstance.drawFrame([&sceneContext, &deferredRender, 
-			 shadowRenderpass, shadowFramebuffer, shadowTexSize, shadowGraphicPipeline, shadowPipelineLayout, shadowDecriptorSet](VkCommandBuffer commandBuffer, VkFramebuffer frameBuffer)
+		vulcanInstance.drawFrame([&sceneContext, &deferredRender, &shadowRender](VkCommandBuffer commandBuffer, VkFramebuffer frameBuffer, VkImage image)
 			{
 				VkCommandBufferBeginInfo beginInfo = {};
 				beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 				beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 				beginInfo.pInheritanceInfo = nullptr; // Optional
 
-				
 				auto res = vkBeginCommandBuffer(commandBuffer, &beginInfo);
 				assert(res == VK_SUCCESS);
 
-				
-				{
-					array<VkClearValue, 1> clearValues = {};
-					clearValues[0].depthStencil = { 1.0f, 0 };
-				
-					VkRenderPassBeginInfo renderPassInfo = {};
-					renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					renderPassInfo.renderPass =  shadowRenderpass;
-					renderPassInfo.framebuffer =   shadowFramebuffer;
-					renderPassInfo.renderArea.offset = { 0, 0 };
-					renderPassInfo.renderArea.extent = { shadowTexSize, shadowTexSize };
-					renderPassInfo.clearValueCount = clearValues.size();
-					renderPassInfo.pClearValues = &clearValues[0];
-				
-					vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-				
-					vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowGraphicPipeline);
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipelineLayout, 0, 1, &shadowDecriptorSet, 0, nullptr);
-					
-					
-					sceneContext.m_SceneObjectManager.enumerate([&](SceneObject* sceneObj)
-						{
-							array<glm::mat4, 3> matrices = { sceneContext.m_ProjectionMatrix, sceneContext.m_Light.getInvMatrix(), sceneObj->getMatrix() };
-							vkCmdPushConstants(commandBuffer, shadowPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(matrices), &matrices[0]);
-					
-							VisualComponent const* visualComp = sceneObj->findComponent<VisualComponent>();
-							if (visualComp)
-							{
-								for (size_t i = 0; i < visualComp->m_ModelData->meshes.size(); ++i)
-								{
-									VkDeviceSize offsets[] = { 0 };
-									vkCmdBindVertexBuffers(commandBuffer, 0, 1, &visualComp->m_ModelData->meshes[i].vertexBufffer, offsets);
-					
-									vkCmdBindIndexBuffer(commandBuffer, visualComp->m_ModelData->meshes[i].indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-									vkCmdDrawIndexed(commandBuffer, visualComp->m_ModelData->meshes[i].indexBufferSize, 1, 0, 0, 0);
-								}
-							}
-							
-						});
-						
-					vkCmdEndRenderPass(commandBuffer);
-				}
-				
-				
-				{
+				{ //Deffered renderer 1st pass to fill Gbuffers with values
 					array<VkClearValue, 5> clearValues = {};
-					clearValues[0].color ={0.0f, 0.0f, 0.0f, 1.0f };
-					clearValues[1].color ={0.0f, 0.0f, 0.0f, 1.0f };
-					clearValues[2].color ={0.0f, 0.0f, 0.0f, 1.0f };
-					clearValues[3].color ={0.0f, 0.0f, 0.0f, 1.0f };
+					clearValues[0].color = { 0.0f, 0.0f, 0.0f, 0.0f };
+					clearValues[1].color = { 0.0f, 0.0f, 0.0f, 0.0f };
+					clearValues[2].color = { 0.0f, 0.0f, 0.0f, 0.0f };
+					clearValues[3].color = { 0.0f, 0.0f, 0.0f, 0.0f };
 					clearValues[4].depthStencil = { 1.0f, 0 };
 
 					VkRenderPassBeginInfo renderPassInfo = {};
 					renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					
+
 					renderPassInfo.renderPass = deferredRender.m_1stRenderPass;
 					renderPassInfo.framebuffer = deferredRender.m_1stFramebuffer;
 
 					renderPassInfo.renderArea.offset = { 0, 0 };
 					renderPassInfo.renderArea.extent = deferredRender.m_Extent;
-					renderPassInfo.clearValueCount = clearValues.size();
+					renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 					renderPassInfo.pClearValues = &clearValues[0];
 
 					vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-					
+
 					sceneContext.recordCommandBuffer(commandBuffer);
 
 					vkCmdEndRenderPass(commandBuffer);
 				}
 
-			
+
+				static volatile int l = 0;
+
+				static volatile int from = 0;
+				static volatile int to = 2;
+				for (size_t i = from; i <  to /*sceneContext.m_Lights.size()*/; ++i)
 				{
-					array<VkClearValue, 2> clearValues = {};
-					clearValues[0].color = {0.0f, 0.0f, 0.0f, 1.0f };
-					clearValues[1].depthStencil = { 1.0f, 0 };
+				//if (l == 0)
+				//{
+				//	i = 0;
+				//	l=1;
+				//}
+				//else
+				//{
+				//	i = 1;
+				//	l = 0;
+				//}
+				//
+
+					{ //Generate shadow map
+						array<VkClearValue, 1> clearValues = {};
+						clearValues[0].depthStencil = { 1.0f, 0 };
+
+						VkRenderPassBeginInfo renderPassInfo = {};
+						renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+						renderPassInfo.renderPass = shadowRender.m_ShadowRenderPass;
+						renderPassInfo.framebuffer = shadowRender.m_ShadowFramebuffer;
+						renderPassInfo.renderArea.offset = { 0, 0 };
+						renderPassInfo.renderArea.extent = shadowRender.m_Extent;
+						renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+						renderPassInfo.pClearValues = &clearValues[0];
+
+						vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+						vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowRender.m_ShadowGraphicPipeline);
+
+						VkDescriptorSet  descSet = shadowRender.m_ShadowDescriptorSet->getDescriptorSet();
+						vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowRender.m_ShadowPipelineLayout, 0, 1, &descSet, 0, nullptr);
+
+						sceneContext.m_SceneObjectManager.enumerate([&](SceneObject* sceneObj)
+							{
+								array<glm::mat4, 3> matrices = { sceneContext.m_ProjectionMatrix, sceneContext.m_Lights[i].getInvMatrix(), sceneObj->getMatrix() };
+								vkCmdPushConstants(commandBuffer, shadowRender.m_ShadowPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(matrices), &matrices[0]);
+
+								VisualComponent const* visualComp = sceneObj->findComponent<VisualComponent>();
+								if (visualComp)
+								{
+									for (size_t i = 0; i < visualComp->m_ModelData->meshes.size(); ++i)
+									{
+										VkDeviceSize offsets[] = { 0 };
+										vkCmdBindVertexBuffers(commandBuffer, 0, 1, &visualComp->m_ModelData->meshes[i].vertexBufffer, offsets);
+
+										vkCmdBindIndexBuffer(commandBuffer, visualComp->m_ModelData->meshes[i].indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+										vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(visualComp->m_ModelData->meshes[i].indexBufferSize), 1, 0, 0, 0);
+									}
+								}
+
+							});
+
+						vkCmdEndRenderPass(commandBuffer);
+					}
+
+				//	VkImageMemoryBarrier imgBarrier{};
+				//	imgBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				//	imgBarrier.image = shadowRender.m_ShadowAttachment.image;
+				//	imgBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+				//	imgBarrier.subresourceRange.baseMipLevel = 0;
+				//	imgBarrier.subresourceRange.levelCount = 1;
+				//	imgBarrier.subresourceRange.baseArrayLayer = 0;
+				//	imgBarrier.subresourceRange.layerCount = 1;
+				//	imgBarrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+				//	imgBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; // VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+				//	imgBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+				//	imgBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
 
-					VkRenderPassBeginInfo renderPassInfo = {};
-					renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					renderPassInfo.renderPass = deferredRender.m_2ndRenderPass;
-					renderPassInfo.framebuffer = frameBuffer;
-					renderPassInfo.renderArea.offset = { 0, 0 };
-					renderPassInfo.renderArea.extent = deferredRender.m_Extent;
-					renderPassInfo.clearValueCount = clearValues.size();
-					renderPassInfo.pClearValues = &clearValues[0];
+				//	vkCmdPipelineBarrier(commandBuffer,
+				//		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+				//		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+				//		0, 0, 0, 0, 0, 0, nullptr);
+
+					{ //Use shadow map and Gbuffer values to calculate illumination
+						array<VkClearValue, 2> clearValues = {};
+						clearValues[0].color = { 0.0f, 0.0f, 0.0f, 1.0f };
+						clearValues[1].depthStencil = { 1.0f, 0 };
+
+						VkClearAttachment clearAtt;
+						clearAtt.colorAttachment = 0;
+						clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+						clearAtt.clearValue = clearValues[0];
+
+						VkClearRect rect;
+						rect.baseArrayLayer = 0;
+						rect.layerCount = 1;
+						rect.rect.offset = { 0,0 };
+						rect.rect.extent = { 1024,1024 };
 
 
-					//==================
-					LightParamUBO lightParam;
 
-				
+						//vkCmdClearColorImage(commandBuffer, 1, clearValues[0]
+						VkRenderPassBeginInfo renderPassInfo = {};
+						renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+						renderPassInfo.renderPass = deferredRender.m_DstRenderPass;
+						renderPassInfo.framebuffer = frameBuffer;
+						renderPassInfo.renderArea.offset = { 0, 0 };
+						renderPassInfo.renderArea.extent = deferredRender.m_Extent;
+						renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+						renderPassInfo.pClearValues = &clearValues[0];
 
-					lightParam.viewProj = sceneContext.m_ProjectionMatrix * sceneContext.m_Light.getInvMatrix() * sceneContext.m_Camera.getMatrix();
-					lightParam.viewSpacePos = glm::vec3(  sceneContext.m_Camera.getInvMatrix() * sceneContext.m_Light.getMatrix()[3]);
-					lightParam.color = glm::vec3(100000.0f);
 
-					deferredRender.m_lightParamBuffer->updateBuffer(&lightParam, 1);
-					//==================
+						//vkCmdPipelineBarrier(commandBuffer,
+						//	VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+						//	VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+						//	0, 0, 0, 0, 0, 0, nullptr);
 
-					vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-					VkDescriptorSet  descSet = deferredRender.m_2ndPassDescriptorSet->getDescriptorSet();
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, deferredRender.m_2ndPassPipelineLayout, 0, 1, &descSet, 0, NULL);
-					vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, deferredRender.m_2ndPassPipeline);
-					vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+							vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-					vkCmdEndRenderPass(commandBuffer);
+
+							//==================
+							LightParamUBO lightParam;
+
+
+							lightParam.viewProj = sceneContext.m_ProjectionMatrix * sceneContext.m_Lights[i].getInvMatrix() * sceneContext.m_Camera.getMatrix();
+							lightParam.viewSpacePos = glm::vec3(sceneContext.m_Camera.getInvMatrix() * sceneContext.m_Lights[i].getMatrix()[3]);
+							lightParam.color = glm::vec3(3000000.0f);
+
+							vkCmdPushConstants(commandBuffer, deferredRender.m_2ndPassPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(lightParam), &lightParam);
+
+							deferredRender.m_lightParamBuffer->updateBuffer(&lightParam, 1);
+
+
+							//==================
+
+							if (i == from )
+							{
+								vkCmdClearAttachments(commandBuffer, 1, &clearAtt, 1, &rect);
+							}
+
+
+							VkDescriptorSet  descSet = deferredRender.m_2ndPassDescriptorSet->getDescriptorSet();
+							vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, deferredRender.m_2ndPassPipelineLayout, 0, 1, &descSet, 0, NULL);
+							vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, deferredRender.m_2ndPassPipeline);
+							vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+
+
+							vkCmdEndRenderPass(commandBuffer);
+
+						//	vkCmdPipelineBarrier(commandBuffer,
+						//		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+						//		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+						//		0, 0, 0, 0, 0, 0, nullptr);
+						
+					}
+
+					//_sleep(100);
 				}
+			
 
 				res = vkEndCommandBuffer(commandBuffer);
 				assert(res == VK_SUCCESS);

@@ -11,6 +11,15 @@ layout( set =0, binding = 5) uniform LightParams
 	vec3 color;
 	
 } lightParams;
+
+layout(push_constant) uniform PushConsts 
+{
+	mat4 viewProjMat;
+	vec3 viewSpacePos;
+	vec3 color;
+} lightPushConsts;
+
+
 layout( set =0, binding = 4) uniform sampler2D depthMap;
 layout( set =0, binding = 3) uniform sampler2D metalicRoughnessAoMap;
 layout( set =0, binding = 2) uniform sampler2D normalMap;
@@ -65,11 +74,12 @@ void main()
 	vec3 N = texture(normalMap, fragTexCoord).rgb;
 	
 	vec3 albedo     = texture(albedoMap, fragTexCoord).rgb;
+	
     float metallic  = texture(metalicRoughnessAoMap, fragTexCoord).r;
     float roughness = texture(metalicRoughnessAoMap, fragTexCoord).g;
     float ao        = texture(metalicRoughnessAoMap, fragTexCoord).b;
 	
-	vec3 lightPos=lightParams.viewSpacePos;
+	vec3 lightPos=lightPushConsts.viewSpacePos;
 	
 	vec3 fragPosition= texture(fragPosMap, fragTexCoord).rgb;
 	
@@ -85,10 +95,10 @@ void main()
     // reflectance equation
     vec3 Lo = vec3(0.0);
 
-        // calculate per-light radiance
-        vec3 H = normalize(V + L);
+
+    vec3 H = normalize(V + L);
         float attenuation = 1.0 / (distance * distance);
-        vec3 radiance     = lightParams.color * attenuation;        
+        vec3 radiance     = lightPushConsts.color * attenuation;        
         
         // cook-torrance brdf
         float NDF = DistributionGGX(N, H, roughness);        
@@ -108,11 +118,10 @@ void main()
         Lo += (kD * albedo / PI + specular) * radiance * NdotL; 
       
   
-    vec3 ambient = vec3(0.03) * albedo * ao;
-    vec3 color = ambient + Lo;
+    //vec3 ambient = vec3(0.03) * albedo * ao;
+    vec3 color = /*ambient +*/ Lo;
 
-
-	vec4 lightSpaceFragPos= lightParams.viewProjMat * vec4(fragPosition, 1.0);
+	vec4 lightSpaceFragPos= lightPushConsts.viewProjMat * vec4(fragPosition, 1.0);
 	lightSpaceFragPos = lightSpaceFragPos/lightSpaceFragPos.w;
 	
 	float lightSpaceFragDistance= lightSpaceFragPos.z;
@@ -124,29 +133,12 @@ void main()
 	
 	if (shadowMapDepth+0.0001f < lightSpaceFragDistance)
 	{
-		color = ambient * vec3(0.3);
+		//color= vec3(0.0);
+		color = vec3(0.3,0,0);
 	}
 
 
     color = pow(color, vec3(1.0/2.2));  
    
     outColor = vec4(color, 1.0);
-	
-	/*
-	outColor = vec4( albedo, 1.0f);
-	
-	float depth = texture(depthMap, fragTexCoord).r;
-	
-	if (depth< 0.9999)
-	{
-		outColor = vec4( 1.0);
-	}
-	else
-	{
-		outColor = vec4(0.0, 0.0, 0.0, 1.0);
-	}	
-	*/
-	
-	//outColor = vec4( vec3(depth) * 0.01, 1.0f);
-	
 }  
