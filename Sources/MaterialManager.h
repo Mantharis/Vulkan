@@ -39,7 +39,8 @@ struct Buffer
 {
 	VkBuffer buffer;
 	VkDeviceMemory bufferMemory;
-	size_t size;
+	size_t size; //sizeof(T) * count
+	size_t count;
 
 	VkDevice m_Device = VK_NULL_HANDLE;
 
@@ -47,17 +48,35 @@ struct Buffer
 	{
 		m_Device = device;
 		size = sizeof(T) * dataCnt;
+		count = dataCnt;
 		VulkanHelpers::createBuffer(buffer, bufferMemory, physicalDevice, device, bufferDataPtr, dataCnt, usageBits);
 	}
 
 	~Buffer();
 	Buffer& operator=(Buffer&& obj);
 	Buffer(Buffer&& obj);
-	template<typename T> void updateBuffer(T* bufferDataPtr, size_t  dataCnt)
+
+	template<typename T> void updateBuffer(T* bufferDataPtr)
 	{
-		VulkanHelpers::copyData(bufferMemory, m_Device, bufferDataPtr, dataCnt);
+		VulkanHelpers::copyData(bufferMemory, m_Device, bufferDataPtr, count);
 	}
 	
+	template<typename T> void copyBuffer(T* bufferDataPtr) const
+	{
+		VulkanHelpers::readDataFromGPU(bufferMemory, m_Device, *bufferDataPtr, count);
+	}
+
+	void*  mapMemory() const
+	{
+		void* data;
+		vkMapMemory(m_Device, bufferMemory, 0, size, 0, &data);
+		return data;
+	}
+
+	void unmapMemory() const
+	{
+		vkUnmapMemory(m_Device, bufferMemory);
+	}
 
 private:
 	Buffer& operator=(Buffer const&) = default;
@@ -111,11 +130,17 @@ public:
 	DescriptorSet(DescriptorSet&& obj);
 	DescriptorSet& operator=(DescriptorSet&& obj);
 	void createDescriptorSet();
-	void addSampler(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout);
-	void addBuffer(string const& paramName, Buffer const& buffer);
+
+	void setSampler(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout);
+	void setImageStorage(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout);
+	void setBuffer(string const& paramName, Buffer const& buffer);
+	void setStorage(string const& paramName, Buffer const& buffer);
+
 	VkDescriptorSet getDescriptorSet() const;
 	shared_ptr<DescriptorSetLayout> getDescriptorSetlayout() const;
 private:
+
+	void updateDescriptorSet(VkDescriptorSetLayoutBinding const& descSetLayoutBinding);
 
 	void destroy();
 	DescriptorSet(DescriptorSet const&) = default;
@@ -124,7 +149,7 @@ private:
 	VkDescriptorSet m_DescriptorSet;
 	VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 	shared_ptr<DescriptorSetLayout> m_DescriptorSetLayout;
-	vector<variant< VkDescriptorImageInfo, VkDescriptorBufferInfo>> m_DescriptorInfo;
+	vector<pair< VkDescriptorType, variant< VkDescriptorImageInfo, VkDescriptorBufferInfo> >> m_DescriptorInfo;
 };
 
 
@@ -146,7 +171,7 @@ struct MaterialDescription
 class MaterialManager
 {
 public:
-	MaterialManager(TextureManager& textureManager, VkDevice device, VkPhysicalDevice physicalDevice, shared_ptr <DescriptorSetLayout> descriptorSetLayout);
+	MaterialManager(TextureManager& textureManager, VkDevice device, VkPhysicalDevice physicalDevice);
 	shared_ptr<const MaterialDescription> createMaterial(tinyobj::material_t const& material, const string& path);
 	shared_ptr <DescriptorSetLayout> getDescriptorSetLayout() const;
 	

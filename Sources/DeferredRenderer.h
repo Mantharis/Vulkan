@@ -17,7 +17,7 @@ class DeferredRender
 {
 
 public:
-	DeferredRender(VkDevice device, VkPhysicalDevice physicalDevice, VkExtent2D extent, VkFormat swapChainImageFormat, VkImageView shadowMapView, VkRenderPass dstRenderPass);
+	DeferredRender(VkDevice device, VkPhysicalDevice physicalDevice, VkExtent2D extent, VkFormat swapChainImageFormat, VkImageView shadowMapView, VkRenderPass dstRenderPass, shared_ptr<DescriptorSetLayout> materialDescriptorSetlayout);
 
 private:
 	void create1stPass();

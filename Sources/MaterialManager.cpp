@@ -176,16 +176,30 @@ using namespace std;
 		return *this;
 	}
 
+	void DescriptorSet::updateDescriptorSet(VkDescriptorSetLayoutBinding const & descSetLayoutBinding)
+	{
+		VkWriteDescriptorSet newDescriptorSet = {};
+		newDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		newDescriptorSet.dstSet = m_DescriptorSet;
+		newDescriptorSet.dstBinding = descSetLayoutBinding.binding;
+		newDescriptorSet.dstArrayElement = 0;
+		newDescriptorSet.descriptorType = descSetLayoutBinding.descriptorType;
+		newDescriptorSet.descriptorCount = descSetLayoutBinding.descriptorCount;
+		newDescriptorSet.pImageInfo = get_if<VkDescriptorImageInfo>(&m_DescriptorInfo[descSetLayoutBinding.binding].second);
+		newDescriptorSet.pBufferInfo = get_if<VkDescriptorBufferInfo>(&m_DescriptorInfo[descSetLayoutBinding.binding].second);
+
+		vkUpdateDescriptorSets(m_DescriptorSetLayout->getDevice(), 1, &newDescriptorSet, 0, nullptr);
+	}
+
+
 	void DescriptorSet::createDescriptorSet()
 	{
 		unordered_multiset<VkDescriptorType> descriptorTypeCnt;
 
-		for (auto& descInfo : m_DescriptorInfo)
-		{
-			if (get_if<VkDescriptorImageInfo>(&descInfo)) descriptorTypeCnt.insert(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-			else if (get_if<VkDescriptorBufferInfo>(&descInfo)) descriptorTypeCnt.insert(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-			else assert(!"Unsupported type");
-		}
+		m_DescriptorSetLayout->enumerate([&descriptorTypeCnt](VkDescriptorSetLayoutBinding& layoutBinding)
+			{
+				descriptorTypeCnt.insert(layoutBinding.descriptorType);
+			});
 
 		vector< VkDescriptorPoolSize> poolSizes;
 		for (auto& descriptorType : descriptorTypeCnt)
@@ -219,32 +233,9 @@ using namespace std;
 		res = vkAllocateDescriptorSets(device, &allocInfo, &m_DescriptorSet);
 
 		assert(res == VK_SUCCESS);
-
-		vector< VkWriteDescriptorSet> descriptorWriteSet;
-
-		m_DescriptorSetLayout->enumerate([&descriptorWriteSet, this](VkDescriptorSetLayoutBinding const& descSetLayoutBinding)
-			{
-				VkWriteDescriptorSet newDescriptorSet = {};
-				newDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-				newDescriptorSet.dstSet = m_DescriptorSet;
-				newDescriptorSet.dstBinding = descSetLayoutBinding.binding;
-				newDescriptorSet.dstArrayElement = 0;
-				newDescriptorSet.descriptorType = descSetLayoutBinding.descriptorType;
-				newDescriptorSet.descriptorCount = descSetLayoutBinding.descriptorCount;
-				newDescriptorSet.pImageInfo = get_if<VkDescriptorImageInfo>(&m_DescriptorInfo[descSetLayoutBinding.binding]);
-				newDescriptorSet.pBufferInfo = get_if<VkDescriptorBufferInfo>(&m_DescriptorInfo[descSetLayoutBinding.binding]);
-
-				descriptorWriteSet.push_back(newDescriptorSet);
-			});
-
-		if (!descriptorWriteSet.empty())
-		{
-			vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWriteSet.size()), &descriptorWriteSet[0], 0, nullptr);
-		}
-		
 	}
 
-	void DescriptorSet::addSampler(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout)
+	void DescriptorSet::setSampler(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout)
 	{
 		auto desc = m_DescriptorSetLayout->getDescriptor(paramName);
 		assert(desc != nullptr && desc->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
@@ -255,10 +246,28 @@ using namespace std;
 		imageInfo.sampler = sampler;
 
 		if (m_DescriptorInfo.size() <= desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
-		m_DescriptorInfo[desc->binding] = imageInfo;
+		m_DescriptorInfo[desc->binding] = make_pair(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, imageInfo);
+
+		updateDescriptorSet(*desc);
 	}
 
-	void DescriptorSet::addBuffer(string const& paramName, Buffer const & buffer)
+	void DescriptorSet::setImageStorage(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout)
+	{
+		auto desc = m_DescriptorSetLayout->getDescriptor(paramName);
+		assert(desc != nullptr && desc->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+
+		VkDescriptorImageInfo imageInfo = {};
+		imageInfo.imageLayout = imageLayout;
+		imageInfo.imageView = imageView;
+		imageInfo.sampler = sampler;
+
+		if (m_DescriptorInfo.size() <= desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
+		m_DescriptorInfo[desc->binding] = make_pair(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, imageInfo);
+
+		updateDescriptorSet(*desc);
+	}
+
+	void DescriptorSet::setBuffer(string const& paramName, Buffer const & buffer)
 	{
 		auto desc = m_DescriptorSetLayout->getDescriptor(paramName);
 		assert(desc != nullptr && desc->descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
@@ -269,8 +278,27 @@ using namespace std;
 		bufferInfo.range = buffer.size;
 
 		if (m_DescriptorInfo.size() <= desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
-		m_DescriptorInfo[desc->binding] = bufferInfo;
+		m_DescriptorInfo[desc->binding] = make_pair(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, bufferInfo);
+
+		updateDescriptorSet(*desc);
 	}
+
+	void DescriptorSet::setStorage(string const& paramName, Buffer const& buffer)
+	{
+		auto desc = m_DescriptorSetLayout->getDescriptor(paramName);
+		assert(desc != nullptr && desc->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = buffer.buffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = buffer.size;
+
+		if (m_DescriptorInfo.size() <= desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
+		m_DescriptorInfo[desc->binding] = make_pair(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, bufferInfo);
+
+		updateDescriptorSet(*desc);
+	}
+
 
 	VkDescriptorSet DescriptorSet::getDescriptorSet() const
 	{
@@ -292,13 +320,21 @@ using namespace std;
 	}
 
 
-	MaterialManager::MaterialManager(TextureManager& textureManager, VkDevice device, VkPhysicalDevice physicalDevice, shared_ptr <DescriptorSetLayout> descriptorSetLayout) :m_TextureManager(textureManager)
+	MaterialManager::MaterialManager(TextureManager& textureManager, VkDevice device, VkPhysicalDevice physicalDevice) :m_TextureManager(textureManager)
 	{
 		m_Device = device;
 		m_PhysicalDevice = physicalDevice;
 		m_Sampler = shared_ptr<const Sampler>(new Sampler(m_Device));
 
-		m_DecriptorSetLayout = move(descriptorSetLayout);
+		m_DecriptorSetLayout = make_shared<DescriptorSetLayout>(m_Device);
+		m_DecriptorSetLayout->addDescriptor("materialBuffer", 0, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+		m_DecriptorSetLayout->addDescriptor("diffuseTex", 1, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->addDescriptor("specularTex", 2, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->addDescriptor("normalTex", 3, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->addDescriptor("specularHighlightTex", 4, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->addDescriptor("aoTex", 5, VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_DecriptorSetLayout->createDescriptorSetLayout();
+
 	}
 
 	shared_ptr<const MaterialDescription> MaterialManager::createMaterial(tinyobj::material_t const& material, const string& path)
@@ -339,15 +375,15 @@ using namespace std;
 			auto buffer = Buffer(m_PhysicalDevice, m_Device, &materialBuffer, 1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 			
 			DescriptorSet descriptorSet(m_DecriptorSetLayout);
-
-			descriptorSet.addBuffer("materialBuffer",buffer);
-
-			descriptorSet.addSampler("diffuseTex", diffuseTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			descriptorSet.addSampler("specularTex", specularTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			descriptorSet.addSampler("normalTex",normalTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			descriptorSet.addSampler("specularHighlightTex", specularHighlightTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			descriptorSet.addSampler("aoTex", aoTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			descriptorSet.createDescriptorSet();
+
+			descriptorSet.setBuffer("materialBuffer",buffer);
+			descriptorSet.setSampler("diffuseTex", diffuseTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			descriptorSet.setSampler("specularTex", specularTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			descriptorSet.setSampler("normalTex",normalTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			descriptorSet.setSampler("specularHighlightTex", specularHighlightTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			descriptorSet.setSampler("aoTex", aoTexture->imageView, m_Sampler->m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			
 
 			MaterialDescription* newMaterial = new MaterialDescription{ move(diffuseTexture), move(specularTexture), move(normalTexture), move(specularHighlightTexture), move(aoTexture), m_Sampler, move(descriptorSet), move(buffer) };
 			newMaterial->m_Id = materialName;

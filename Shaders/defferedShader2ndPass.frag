@@ -133,8 +133,8 @@ void main()
 	
 	if (shadowMapDepth+0.0001f < lightSpaceFragDistance)
 	{
-		//color= vec3(0.0);
-		color = vec3(0.3,0,0);
+		color= vec3(0.0);
+		//color = vec3(0.3,0,0);
 	}
 
 

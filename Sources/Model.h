@@ -8,38 +8,18 @@
 
 using namespace std;
 
-//Holds Vertex + Index data on GPU
+//Holds Vertex + Index data on GPU and CPU
 struct MeshData
 {
-	VkBuffer vertexBufffer;
-	VkDeviceMemory vertexBufferMemory;
+	Buffer vertexBuffer;
+	Buffer indexBuffer;
 
-	VkBuffer indexBuffer;
-	VkDeviceMemory indexBufferMemory;
-
-	size_t indexBufferSize;
-
-	VkDevice m_Device = VK_NULL_HANDLE;
-
-	template<typename T> explicit MeshData(VkPhysicalDevice physicalDevice, VkDevice device, vector<T> const& vData, vector<unsigned int> const& iData)
+	template<typename T> explicit MeshData(VkPhysicalDevice physicalDevice, VkDevice device, vector<T> const& vData, vector<unsigned int> const& iData):
+		vertexBuffer(physicalDevice, device, &vData[0], vData.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT),
+		indexBuffer(physicalDevice, device, &iData[0], iData.size(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT)
 	{
-		m_Device = device;
-		indexBufferSize = iData.size();
-
-		//Send loaded data to GPU
-		VulkanHelpers::createBuffer(vertexBufffer, vertexBufferMemory, physicalDevice, device, &vData[0], vData.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-		VulkanHelpers::createBuffer(indexBuffer, indexBufferMemory, physicalDevice, device, &iData[0], iData.size(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 	}
 
-	~MeshData();
-	MeshData& operator=(MeshData&& obj);
-	MeshData(MeshData&& obj);
-
-private:
-	MeshData& operator=(MeshData const&) = default;
-	MeshData(MeshData const&) = default;
-
-	void destroy();
 };
 
 struct ModelData

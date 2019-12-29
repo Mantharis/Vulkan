@@ -9,7 +9,8 @@ using namespace std;
 
 enum class ComponentType
 {
-	VISUAL_COMPONENT
+	VISUAL_COMPONENT,
+	PARTICLE_COMPONENT
 };
 
 class IComponent

@@ -1,3 +1,5 @@
+#pragma once
+
 #include "VulkanHelper.h"
 #include <vector>
 #include <functional>

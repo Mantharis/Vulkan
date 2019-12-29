@@ -7,8 +7,14 @@
 #include <vector>
 #include <array>
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 using namespace std;
 
@@ -78,26 +84,43 @@ using namespace std;
 		assert(res == VK_SUCCESS);
 	}
 
-	 void VulkanHelpers::createGraphicsPipeline(VkDevice device, VkRenderPass renderPass, int colorAttachmentCnt, VkExtent2D extent, ShaderSet const& shaderSet, bool blending, VkPipelineLayout& outPipelineLayout, VkPipeline& outPipeline)
+	 void VulkanHelpers::createGraphicsPipeline(VkDevice device, VkRenderPass renderPass, int colorAttachmentCnt, VkExtent2D extent, ShaderSet const& shaderSet, bool blending, VkPipelineInputAssemblyStateCreateInfo const &inputAssemblyInfo, VkPipelineLayout& outPipelineLayout, VkPipeline& outPipeline)
 	{
-		VkShaderModule vertShader;
-		VulkanHelpers::createShaderModuleFromFile(shaderSet.vertexShaderPath.c_str(), device, vertShader);
+		vector< VkPipelineShaderStageCreateInfo> shaders;
 
-		VkShaderModule fragShader;
-		VulkanHelpers::createShaderModuleFromFile(shaderSet.fragmentShaderPath.c_str(), device, fragShader);
+		{
+			VkShaderModule vertShader;
+			VulkanHelpers::createShaderModuleFromFile(shaderSet.vertexShaderPath.c_str(), device, vertShader);
+			VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
+			vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+			vertShaderStageInfo.module = vertShader;
+			vertShaderStageInfo.pName = "main";
+			shaders.push_back(vertShaderStageInfo);
+		}
 
-		VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
-		vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-		vertShaderStageInfo.module = vertShader;
-		vertShaderStageInfo.pName = "main";
-
-		VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
-		fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-		fragShaderStageInfo.module = fragShader;
-		fragShaderStageInfo.pName = "main";
-
+		{
+			VkShaderModule fragShader;
+			VulkanHelpers::createShaderModuleFromFile(shaderSet.fragmentShaderPath.c_str(), device, fragShader);
+			VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
+			fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+			fragShaderStageInfo.module = fragShader;
+			fragShaderStageInfo.pName = "main";
+			shaders.push_back(fragShaderStageInfo);
+		}
+		
+		if (!shaderSet.geometryShaderPath.empty())
+		{
+			VkShaderModule geomShader;
+			VulkanHelpers::createShaderModuleFromFile(shaderSet.geometryShaderPath.c_str(), device, geomShader);
+			VkPipelineShaderStageCreateInfo geomShaderStageInfo = {};
+			geomShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			geomShaderStageInfo.stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+			geomShaderStageInfo.module = geomShader;
+			geomShaderStageInfo.pName = "main";
+			shaders.push_back(geomShaderStageInfo);
+		}
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -109,12 +132,6 @@ using namespace std;
 			vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(shaderSet.vertexInputAttributeDescription.size());
 			vertexInputInfo.pVertexAttributeDescriptions = &shaderSet.vertexInputAttributeDescription[0];
 		}
-
-
-		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
-		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-		inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-		inputAssembly.primitiveRestartEnable = VK_FALSE;
 
 		VkViewport viewport = {};
 		viewport.x = 0.0f;
@@ -224,14 +241,13 @@ using namespace std;
 		depthStencil.back = {}; // Optional
 
 
-		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
 		VkGraphicsPipelineCreateInfo pipelineInfo = {};
 		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-		pipelineInfo.stageCount = 2;
-		pipelineInfo.pStages = shaderStages;
+		pipelineInfo.stageCount = shaders.size();
+		pipelineInfo.pStages = &shaders[0];
 		pipelineInfo.pVertexInputState = &vertexInputInfo;
-		pipelineInfo.pInputAssemblyState = &inputAssembly;
+		pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
 		pipelineInfo.pViewportState = &viewportState;
 		pipelineInfo.pRasterizationState = &rasterizer;
 		pipelineInfo.pMultisampleState = &multisampling;
@@ -247,8 +263,10 @@ using namespace std;
 		res = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &outPipeline);
 		assert(res == VK_SUCCESS);
 
-		vkDestroyShaderModule(device, fragShader, nullptr);
-		vkDestroyShaderModule(device, vertShader, nullptr);
+		for (auto& shader : shaders)
+		{
+			vkDestroyShaderModule(device, shader.module, nullptr);
+		}
 	}
 
 	void VulkanHelpers::createRenderPass(VkRenderPass &outRenderPass, VkDevice device, VkFormat colorAttachmentFormat, VkImageLayout colroAttachmnetImagelayout, VkAttachmentLoadOp colorAttachmentLoadOp, size_t colorAttachmentCnt,  bool depthAttachment, VkImageLayout depthAttachmentImageLayout)
@@ -431,6 +449,7 @@ using namespace std;
 		assert(res == VK_SUCCESS);
 	}
 
+
 	void VulkanHelpers::createTextureImage(VkPhysicalDevice physicalDevice, VkCommandPool commandPool, VkQueue graphicQueue, VkImage& outImage, VkDeviceMemory& outDeviceMemory, const char* imagePath, VkDevice device, VkFormat imageFormat )
 	{
 		int texWidth, texHeight, texChannels;
@@ -490,6 +509,12 @@ using namespace std;
 		vkBindImageMemory(device, image, imageMemory, 0);
 	}
 
+	void VulkanHelpers::writeImage(const char *filePath, size_t width, size_t height, size_t channels, void const *data)
+	{
+			stbi_write_jpg(filePath, width, height, channels, data, width * channels);
+	}
+
+
 	void VulkanHelpers::createShaderModuleFromFile(const char* filePath, VkDevice device, VkShaderModule& outShaderModule)
 	{
 		ifstream file(filePath, ifstream::binary);
@@ -538,6 +563,14 @@ using namespace std;
 		{
 			barrier.srcAccessMask = 0;
 			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_GENERAL)
+		{
+			barrier.srcAccessMask = 0;
+			barrier.dstAccessMask = 0;
 
 			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;

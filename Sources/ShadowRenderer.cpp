@@ -41,7 +41,12 @@ ShadowRenderer::ShadowRenderer(VkDevice device, VkPhysicalDevice physicalDevice,
 	for (auto& attribute : Vertex::getAttributeDescriptions())
 		shaderData.vertexInputAttributeDescription.push_back(attribute);
 	
-	VulkanHelpers::createGraphicsPipeline(m_Device, m_ShadowRenderPass, 0, m_Extent, shaderData, false, m_ShadowPipelineLayout, m_ShadowGraphicPipeline);
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+	VulkanHelpers::createGraphicsPipeline(m_Device, m_ShadowRenderPass, 0, m_Extent, shaderData, false, inputAssembly, m_ShadowPipelineLayout, m_ShadowGraphicPipeline);
 }
 
 
