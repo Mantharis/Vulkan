@@ -6,7 +6,7 @@
 int main()
 {
 	runRayTracing();
-	runDeferredRenderWithShadowMapping();
-	runParticles();
+	//runDeferredRenderWithShadowMapping();
+	//runParticles();
 	return 0;
 }

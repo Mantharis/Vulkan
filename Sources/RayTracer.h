@@ -62,13 +62,46 @@ struct Triangle
 	alignas(8) glm::vec2 t0;
 	alignas(8) glm::vec2 t1;
 	alignas(8) glm::vec2 t2;
+
+	unsigned int materialId;
+};
+
+struct Sphere
+{
+	alignas(16) glm::vec3 pos;
+	float radius;
+	unsigned int materialId;
+};
+
+struct Plane
+{
+	alignas(16) glm::vec3 normal;
+	float paramD;
+
+	static Plane ConstructPlaneFromTriangle(glm::vec3 const& p1, glm::vec3 const& p2, glm::vec3 const& p3)
+	{
+		//dot(n,p)+d=0
+		Plane plane;
+
+		plane.normal = glm::normalize(glm::cross(p2 - p1, p3 - p2));
+		plane.paramD = -glm::dot(plane.normal, p1);
+		
+		return plane;
+	}
+};
+
+struct Material
+{
+	alignas(16) glm::vec4 color;
+	float reflFactor;
 };
 
 struct RayTracerUBO
 {
-	alignas(4) unsigned int resX;
-	alignas(4) unsigned int resY;
-	alignas(4) unsigned int polygonCnt;
+	alignas(4) unsigned int resX = 0;
+	alignas(4) unsigned int resY = 0;
+	alignas(4) unsigned int triangleCnt = 0;
+	alignas(4) unsigned int sphereCnt = 0;
 };
 
 class RayTracer
@@ -78,6 +111,10 @@ public:
 
 	void setResolution(size_t x, size_t y);
 	void setTriangles(vector<Triangle> const &triangles);
+	void setSpheres(vector<Sphere> const& spheres);
+	void setMaterials(vector<Material> const& materials);
+
+
 	void setView(glm::mat4 const& matrix);
 	void setTexture(VkImageView imageView);
 
@@ -96,6 +133,8 @@ public:
 	DescriptorSet m_ComputeDescriptorSet;
 
 	unique_ptr<Buffer> m_TriangleBuffer;
+	unique_ptr<Buffer>  m_SphereBuffer;
+	unique_ptr<Buffer> m_MaterialBuffer;
 
 	VkFence m_Fence;
 	VkQueue m_Queue;

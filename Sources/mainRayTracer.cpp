@@ -54,10 +54,11 @@ void runRayTracing()
 
 	Window window(resX, resY, "Vulkan");
 	VulcanInstance vulcanInstance(window.getWindow(), resX, resY);
-	RayTracer rayTracer(vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, vulcanInstance.getQueueFamilyIndex(VK_QUEUE_COMPUTE_BIT), vulcanInstance.m_CommandPool, vulcanInstance.m_GraphicQueue, vulcanInstance.m_RenderPass, 256, 256);
+	RayTracer rayTracer(vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, vulcanInstance.getQueueFamilyIndex(VK_QUEUE_COMPUTE_BIT), vulcanInstance.m_CommandPool, vulcanInstance.m_GraphicQueue, vulcanInstance.m_RenderPass, 1024, 1024);
 	SceneObjectFactory sceneObjectFactory(vulcanInstance.m_PhysicalDevice, vulcanInstance.m_Device, vulcanInstance.m_CommandPool, vulcanInstance.m_GraphicQueue);
 
 
+	/*
 	unique_ptr<SceneObject> obj = sceneObjectFactory.createSceneObjectFromFile("./../Models/test7/Model.obj");
 	glm::mat4& mat = obj->getMatrix();
 	mat[0][0] = mat[1][1] = mat[2][2] = 100.0f;
@@ -95,9 +96,148 @@ void runRayTracing()
 
 	rayTracer.setTriangles(triangles);
 	rayTracer.setTexture(visualComp->m_ModelData->materials[0]->m_DiffuseTexture->imageView);
-
+	*/
 		
+	vector<Triangle> triangles;
 
+	float scale = 5000.0f;
+
+	//front side
+	Triangle face;
+	face.v0 = glm::vec3(-0.5, -0.5f, -0.5f) *scale;	 face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v1 = glm::vec3(0.5, -0.5f, -0.5f)  *scale;	 face.t1 = glm::vec2(1.0f, 0.0f);
+	face.v2 = glm::vec3(0.5, 0.5f, -0.5f)  *scale;	 face.t2 = glm::vec2(1.0f, 1.0f);
+	face.materialId = 0;
+	triangles.push_back(face);
+
+	face.v0 = glm::vec3(-0.5, -0.5f, -0.5f) *scale;		face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v1 = glm::vec3(0.5, 0.5f, -0.5f) * scale;		 face.t1 = glm::vec2(1.0f, 1.0f);
+	face.v2 = glm::vec3(-0.5, 0.5f, -0.5f) * scale;		 face.t2 = glm::vec2(0.0f, 1.0f);
+	face.materialId = 0;
+	triangles.push_back(face);
+
+
+	//back side
+	face.v1 = glm::vec3(-0.5, -0.5f, 0.5f) * scale;	 face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v0 = glm::vec3(0.5, -0.5f, 0.5f) * scale;	 face.t1 = glm::vec2(1.0f, 0.0f);
+	face.v2 = glm::vec3(0.5, 0.5f, 0.5f) * scale;	 face.t2 = glm::vec2(1.0f, 1.0f);
+	face.materialId = 1;
+	triangles.push_back(face);
+
+	face.v0 = glm::vec3(-0.5, -0.5f, 0.5f) * scale;		face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v2 = glm::vec3(0.5, 0.5f, 0.5f) * scale;		 face.t1 = glm::vec2(1.0f, 1.0f);
+	face.v1 = glm::vec3(-0.5, 0.5f, 0.5f) * scale;		 face.t2 = glm::vec2(0.0f, 1.0f);
+	face.materialId = 1;
+	triangles.push_back(face);
+
+	//floor
+	face.v0 = glm::vec3(-0.5, -0.5f, -0.5f) * scale;	 face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v1 = glm::vec3(-0.5, -0.5f, 0.5f) * scale;	 face.t1 = glm::vec2(1.0f, 0.0f);
+	face.v2 = glm::vec3(0.5, -0.5f, 0.5f) * scale;	 face.t2 = glm::vec2(1.0f, 1.0f);
+	face.materialId = 2;
+	triangles.push_back(face);
+
+	face.v0 = glm::vec3(-0.5, -0.5f, -0.5f) * scale;	 face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v2 = glm::vec3(0.5, -0.5f, -0.5f) * scale;	 face.t1 = glm::vec2(1.0f, 0.0f);
+	face.v1 = glm::vec3(0.5, -0.5f, 0.5f) * scale;	 face.t2 = glm::vec2(1.0f, 1.0f);
+	face.materialId = 2;
+	triangles.push_back(face);
+
+
+	//ceiling
+	face.v0 = glm::vec3(-0.5, 0.5f, -0.5f) * scale;	 face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v2 = glm::vec3(-0.5, 0.5f, 0.5f) * scale;	 face.t1 = glm::vec2(1.0f, 0.0f);
+	face.v1 = glm::vec3(0.5, 0.5f, 0.5f) * scale;	 face.t2 = glm::vec2(1.0f, 1.0f);
+	face.materialId = 3;
+	triangles.push_back(face);
+
+	face.v0 = glm::vec3(-0.5, 0.5f, -0.5f) * scale;	 face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v1 = glm::vec3(0.5, 0.5f, -0.5f) * scale;	 face.t1 = glm::vec2(1.0f, 0.0f);
+	face.v2 = glm::vec3(0.5, 0.5f, 0.5f) * scale;	 face.t2 = glm::vec2(1.0f, 1.0f);
+	face.materialId = 3;
+	triangles.push_back(face);
+
+	//left side
+	face.v0 = glm::vec3(-0.5, -0.5f, -0.5f) * scale;	 face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v1 = glm::vec3(-0.5, 0.5f, -0.5f) * scale;	 face.t1 = glm::vec2(1.0f, 0.0f);
+	face.v2 = glm::vec3(-0.5, 0.5f, 0.5f) * scale;	 face.t2 = glm::vec2(1.0f, 1.0f);
+	face.materialId = 4;
+	triangles.push_back(face);
+
+	face.v0 = glm::vec3(-0.5, -0.5f, -0.5f) * scale;		face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v1 = glm::vec3(-0.5, 0.5f, 0.5f) * scale;		 face.t1 = glm::vec2(1.0f, 1.0f);
+	face.v2 = glm::vec3(-0.5, -0.5f, 0.5f) * scale;		 face.t2 = glm::vec2(0.0f, 1.0f);
+	face.materialId = 4;
+	triangles.push_back(face);
+
+	//right side
+	face.v0 = glm::vec3(0.5, -0.5f, -0.5f) * scale;	 face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v2 = glm::vec3(0.5, 0.5f, -0.5f) * scale;	 face.t1 = glm::vec2(1.0f, 0.0f);
+	face.v1 = glm::vec3(0.5, 0.5f, 0.5f) * scale;	 face.t2 = glm::vec2(1.0f, 1.0f);
+	face.materialId = 5;
+	triangles.push_back(face);
+
+	face.v0 = glm::vec3(0.5, -0.5f, -0.5f) * scale;		face.t0 = glm::vec2(0.0f, 0.0f);
+	face.v2 = glm::vec3(0.5, 0.5f, 0.5f) * scale;		 face.t1 = glm::vec2(1.0f, 1.0f);
+	face.v1 = glm::vec3(0.5, -0.5f, 0.5f) * scale;		 face.t2 = glm::vec2(0.0f, 1.0f);
+	face.materialId = 5;
+	triangles.push_back(face);
+
+	rayTracer.setTriangles(triangles);
+
+
+	vector<Sphere> spheres;
+	Sphere sphere;
+	sphere.pos = glm::vec3(0, 0, 0);
+	sphere.radius = 50.0;
+	sphere.materialId = 6;
+	spheres.push_back(sphere);
+
+	sphere.pos = glm::vec3(120, 0, 0);
+	sphere.radius = 70.0;
+	sphere.materialId = 7;
+	spheres.push_back(sphere);
+
+	rayTracer.setSpheres(spheres);
+
+
+	vector<Material> materials;
+	Material material;
+
+
+	material.color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+	material.reflFactor = 0.5f;
+	materials.push_back(material);
+
+	material.color = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+	material.reflFactor = 0.0f;
+	materials.push_back(material);
+
+	material.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+	material.reflFactor = 0.0f;
+	materials.push_back(material);
+
+	material.color = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
+	material.reflFactor = 0.0f;
+	materials.push_back(material);
+
+	material.color = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f);
+	material.reflFactor = 0.0f;
+	materials.push_back(material);
+
+	material.color = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);
+	material.reflFactor = 0.0f;
+	materials.push_back(material);
+
+	material.color = glm::vec4(0.6f, 0.1f, 0.1f, 1.0f);
+	material.reflFactor = 0.9f;
+	materials.push_back(material);
+
+	material.color = glm::vec4(0.1f, 0.6f, 0.1f, 1.0f);
+	material.reflFactor = 0.5f;
+	materials.push_back(material);
+
+	rayTracer.setMaterials(materials);
 
 	window.setKeyCallback(key_callback);
 	window.setMouseMoveCallback(cursor_position_callback);

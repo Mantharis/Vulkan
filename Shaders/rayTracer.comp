@@ -9,24 +9,56 @@ struct Triangle
 	vec2 t0;
 	vec2 t1;
 	vec2 t2;
+	
+	uint materialId;
+};
+
+struct Sphere
+{
+	vec3 pos;
+	float radius;
+	uint materialId;
+};
+
+
+struct Plane
+{
+	vec3 normal;
+	float paramD;
+};
+
+struct Material
+{
+	vec4 color;
+	float reflFactor;
 };
 
 layout (binding = 0, rgba8) uniform writeonly image2D resultImage;
 
+layout(binding = 1) uniform RayTracerUBO 
+{
+    int resX;
+	int resY;
+	int triangleCnt;
+	int sphereCnt;
+};
 
-layout(std430, binding = 1) buffer TrianglesBuffer 
+layout(std430, binding = 2) buffer MaterialsBuffer 
+{
+   Material materials[ ];
+};
+
+layout(std430, binding = 3) buffer TrianglesBuffer 
 {
    Triangle triangles[ ];
 };
 
-layout(binding = 2) uniform RayTracerUBO 
+layout(std430, binding = 4) buffer SpheresBuffer 
 {
-    int resX;
-	int resY;
-	int polygonCnt;
+   Sphere spheres[ ];
 };
 
-layout(binding = 3) uniform sampler2D inputTex;
+layout(binding = 5) uniform sampler2D inputTex;
 
 layout (local_size_x = 8) in;
 
@@ -62,7 +94,140 @@ float rayTriangleIntersectFast( vec3 orig, vec3 dir, vec3 v0, vec3 v1, vec3 v2, 
 	uv=vec2(u,v);
 	
     return t; 
-} 
+}
+
+float raySphereIntersection( vec3 origin, vec3 dir, Sphere sphere)
+{
+    vec3 oc = origin - sphere.pos;
+    float a = dot(dir, dir);
+    float b = 2.0 * dot(oc, dir);
+    float c = dot(oc,oc) - sphere.radius*sphere.radius;
+    float discriminant = b*b - 4*a*c;
+    if(discriminant < 0)
+	{
+        return -1.0;
+    }
+    else{
+        return (-b - sqrt(discriminant)) / (2.0*a);
+    }
+}
+
+struct IntersectionInfo
+{
+	vec3 normal;
+	vec2 uv;
+	int sphereIdx;
+	int triangleIdx;
+	float paramT;
+	
+};
+
+IntersectionInfo findIntersection( vec3 orig, vec3 dir)
+{
+	IntersectionInfo intersectionInfo;
+
+	intersectionInfo.paramT = 100000.0f;;
+	intersectionInfo.sphereIdx = -1;
+	intersectionInfo.triangleIdx = -1;
+	
+	for (int sphereIdx=0; sphereIdx< sphereCnt; ++sphereIdx)
+	{
+		float paramT = raySphereIntersection( orig, dir , spheres[sphereIdx]);
+		if (paramT>= 0.0 && paramT< intersectionInfo.paramT)
+		{
+			intersectionInfo.paramT =paramT;
+			intersectionInfo.sphereIdx  = sphereIdx;
+			
+			vec3 iPos =  orig + (dir* paramT);
+			intersectionInfo.normal =  normalize(iPos-spheres[sphereIdx].pos);
+		}
+	}
+	
+	for (int triangleIdx=0; triangleIdx< triangleCnt; ++triangleIdx)
+	{
+		vec2 uv;
+		float paramT = rayTriangleIntersectFast( orig, dir , triangles[triangleIdx].v0, triangles[triangleIdx].v1, triangles[triangleIdx].v2, uv);
+		if (paramT>= 0.0 && paramT< intersectionInfo.paramT)
+		{
+			intersectionInfo.paramT =paramT;
+			intersectionInfo.sphereIdx  = -1;
+			intersectionInfo.triangleIdx = triangleIdx;
+			intersectionInfo.uv = uv;
+			
+			intersectionInfo.normal =  normalize(cross(triangles[triangleIdx].v1-triangles[triangleIdx].v0, triangles[triangleIdx].v2 - triangles[triangleIdx].v1));
+		}
+	}
+	
+	return intersectionInfo;
+}
+
+struct RayTask
+{
+	vec3 origin;
+	vec3 dir;
+	float contribution;
+};
+
+
+
+
+struct RayStack
+{
+	RayTask stack[10];
+	int count;
+};
+
+Material getMaterial( IntersectionInfo intersectionInfo)
+{
+	Material material;
+	material.color = vec4(0,0,0,1);	
+	material.reflFactor = 0.0;
+	
+	if (intersectionInfo.sphereIdx!= -1) material= materials[spheres[intersectionInfo.sphereIdx].materialId];
+	else if (intersectionInfo.triangleIdx!= -1) material = materials[triangles[intersectionInfo.triangleIdx].materialId];
+	
+	return material;
+}
+
+vec3 evaluateColor( vec3 orig, vec3 dir)
+{
+	vec3 retColor=vec3(0.0);
+	
+	RayStack rayStack;
+	rayStack.count=1;
+	rayStack.stack[0].contribution=1.0;
+	rayStack.stack[0].origin = orig;
+	rayStack.stack[0].dir = dir;
+	
+	while (rayStack.count>0)
+	{
+		RayTask rayTask = rayStack.stack[rayStack.count-1];
+		
+		IntersectionInfo intersectionInfo = findIntersection(rayTask.origin, rayTask.dir);
+		Material material = getMaterial(intersectionInfo);
+		
+		retColor+= material.color.rgb *  (1.0 - material.reflFactor) * rayTask.contribution;
+			 
+		float newContribution = material.reflFactor * rayTask.contribution;
+			
+		if (newContribution>0.05)
+		{
+			vec3 intersectPoint = rayTask.origin + (rayTask.dir * intersectionInfo.paramT);
+			vec3 intersectNormal = intersectionInfo.normal;
+				
+			rayTask.origin= intersectPoint + intersectNormal * 0.01;
+			rayTask.dir = normalize(reflect(rayTask.dir,  intersectNormal));
+			rayTask.contribution=newContribution;
+				
+			rayStack.stack[rayStack.count-1] = rayTask;
+				
+			++rayStack.count;
+		}
+		--rayStack.count;
+	}
+	
+	return retColor;
+}
 
 
 void main() 
@@ -78,12 +243,14 @@ void main()
 	vec3 dir= (pushConsts.view * vec4(x,y, -planeDis, 0.0)).xyz;
 	vec3 origin=pushConsts.view[3].xyz;
 	
+	imageStore(resultImage, ivec2(rayIdx%resX, resY - rayIdx/resX), vec4(evaluateColor(origin, dir), 1.0));
 	
-	
+	/*
 	float closestPoint= 100000.0f;
 	vec2 texCoord;
+	int closestSphereIdx=-1;
 	
-	for (int triangleIdx=0; triangleIdx< polygonCnt; ++triangleIdx)
+	for (int triangleIdx=0; triangleIdx< triangleCnt; ++triangleIdx)
 	{
 		vec2 uv;
 		float paramT = rayTriangleIntersectFast( origin, dir , triangles[triangleIdx].v0, triangles[triangleIdx].v1, triangles[triangleIdx].v2, uv);
@@ -93,15 +260,6 @@ void main()
 			texCoord = uv.x * triangles[triangleIdx].t1 + uv.y * triangles[triangleIdx].t2 + (1.0 -uv.x - uv.y) * triangles[triangleIdx].t0;
 		}
 	}
-	
-	if (closestPoint < 100000.0-1.0)
-	{
-		imageStore(resultImage, ivec2(rayIdx%resX, resY - rayIdx/resX), vec4(texture(inputTex, texCoord).rgb,1.0));
-	}
-	else
-	{
-		imageStore(resultImage, ivec2(rayIdx%resX, resY - rayIdx/resX), vec4(0.3f, 0.3, 0.3, 1.0));
-	}
-	
+	*/
 }
 

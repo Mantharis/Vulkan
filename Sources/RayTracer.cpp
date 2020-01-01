@@ -72,7 +72,7 @@
 		m_TriangleBuffer = make_unique<Buffer>(m_PhysicalDevice, m_Device, &triangles[0], triangles.size(), (VkBufferUsageFlagBits)(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT));
 		m_ComputeDescriptorSet.setStorage("triangles", *m_TriangleBuffer);
 
-		m_UniformBufferMappingPtr->polygonCnt = triangles.size();
+		m_UniformBufferMappingPtr->triangleCnt = triangles.size();
 
 		/*
 		RayTracerUBO tmpBuffer;
@@ -82,6 +82,21 @@
 
 		m_UniformBuffer->updateBuffer(&tmpBuffer);
 		*/
+	}
+
+	void RayTracer::setSpheres(vector<Sphere> const& spheres)
+	{
+		m_SphereBuffer = make_unique<Buffer>(m_PhysicalDevice, m_Device, &spheres[0], spheres.size(), (VkBufferUsageFlagBits)(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT));
+		m_ComputeDescriptorSet.setStorage("spheres", *m_SphereBuffer);
+
+		m_UniformBufferMappingPtr->sphereCnt = spheres.size();
+	}
+
+
+	void RayTracer::setMaterials(vector<Material> const& materials)
+	{
+		m_MaterialBuffer = make_unique<Buffer>(m_PhysicalDevice, m_Device, &materials[0], materials.size(), (VkBufferUsageFlagBits)(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT));
+		m_ComputeDescriptorSet.setStorage("materials", *m_MaterialBuffer);
 	}
 
 	void RayTracer::submitComputeCommand()
@@ -102,9 +117,11 @@
 	void RayTracer::createComputePipeline(VkPhysicalDevice physicalDevice, VkDevice device, int computeQueueIndex)
 	{
 		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("dstImage", 0, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("triangles", 1, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("settings", 2, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("texture", 3, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("settings", 1, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("materials", 2, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("triangles", 3, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("spheres", 4, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("texture", 5, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 
 		m_ComputeDescriptorSet.getDescriptorSetlayout()->createDescriptorSetLayout();
 		m_ComputeDescriptorSet.createDescriptorSet();
