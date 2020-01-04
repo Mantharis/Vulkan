@@ -31,15 +31,15 @@
 		m_UniformBuffer = make_unique<Buffer>(m_PhysicalDevice, m_Device, &settings, 1, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 		m_ComputeDescriptorSet.setBuffer("settings", *m_UniformBuffer);
 		m_UniformBufferMappingPtr = static_cast<RayTracerUBO*>(m_UniformBuffer->mapMemory());
-		m_UniformBufferMappingPtr->resX = resX;
-		m_UniformBufferMappingPtr->resY = resY;
+		m_UniformBufferMappingPtr->resX = resX/2;
+		m_UniformBufferMappingPtr->resY = resY/2;
 
 		createRenderPass(m_PhysicalDevice, m_Device);
 	}
 
-	void RayTracer::setTexture(VkImageView imageView)
+	void RayTracer::setTextures( vector<VkImageView> const & imageViews)
 	{
-		m_ComputeDescriptorSet.setSampler("texture", imageView, m_Sampler.m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		m_ComputeDescriptorSet.setSamplerArray("textures", imageViews, m_Sampler.m_Sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
 
 	void RayTracer::setView(glm::mat4 const& matrix)
@@ -121,7 +121,7 @@
 		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("materials", 2, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("triangles", 3, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("spheres", 4, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("texture", 5, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		m_ComputeDescriptorSet.getDescriptorSetlayout()->addDescriptor("textures", 5, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
 
 		m_ComputeDescriptorSet.getDescriptorSetlayout()->createDescriptorSetLayout();
 		m_ComputeDescriptorSet.createDescriptorSet();

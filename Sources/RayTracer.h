@@ -94,6 +94,7 @@ struct Material
 {
 	alignas(16) glm::vec4 color;
 	float reflFactor;
+	int texId;
 };
 
 struct RayTracerUBO
@@ -116,7 +117,7 @@ public:
 
 
 	void setView(glm::mat4 const& matrix);
-	void setTexture(VkImageView imageView);
+	void setTextures(vector<VkImageView> const& imageViews);
 
 	void recordComputeCommand();
 	void submitComputeCommand();

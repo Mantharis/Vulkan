@@ -31,6 +31,7 @@ struct Material
 {
 	vec4 color;
 	float reflFactor;
+	int texId;
 };
 
 layout (binding = 0, rgba8) uniform writeonly image2D resultImage;
@@ -58,7 +59,7 @@ layout(std430, binding = 4) buffer SpheresBuffer
    Sphere spheres[ ];
 };
 
-layout(binding = 5) uniform sampler2D inputTex;
+layout(binding = 5) uniform sampler2D inputTex[8];
 
 layout (local_size_x = 8) in;
 
@@ -152,7 +153,7 @@ IntersectionInfo findIntersection( vec3 orig, vec3 dir)
 			intersectionInfo.paramT =paramT;
 			intersectionInfo.sphereIdx  = -1;
 			intersectionInfo.triangleIdx = triangleIdx;
-			intersectionInfo.uv = uv;
+			intersectionInfo.uv =  triangles[triangleIdx].t1 * uv.x +  triangles[triangleIdx].t2 * uv.y + triangles[triangleIdx].t0 * (1.0 - uv.x - uv.y);
 			
 			intersectionInfo.normal =  normalize(cross(triangles[triangleIdx].v1-triangles[triangleIdx].v0, triangles[triangleIdx].v2 - triangles[triangleIdx].v1));
 		}
@@ -182,6 +183,7 @@ Material getMaterial( IntersectionInfo intersectionInfo)
 	Material material;
 	material.color = vec4(0,0,0,1);	
 	material.reflFactor = 0.0;
+	material.texId = -1;
 	
 	if (intersectionInfo.sphereIdx!= -1) material= materials[spheres[intersectionInfo.sphereIdx].materialId];
 	else if (intersectionInfo.triangleIdx!= -1) material = materials[triangles[intersectionInfo.triangleIdx].materialId];
@@ -206,8 +208,16 @@ vec3 evaluateColor( vec3 orig, vec3 dir)
 		IntersectionInfo intersectionInfo = findIntersection(rayTask.origin, rayTask.dir);
 		Material material = getMaterial(intersectionInfo);
 		
-		retColor+= material.color.rgb *  (1.0 - material.reflFactor) * rayTask.contribution;
-			 
+		if (material.texId>=0)
+		{
+			//retColor = vec3( intersectionInfo.uv, 0.0);
+			retColor+= material.color.rgb * texture(inputTex[material.texId], intersectionInfo.uv).rgb *  (1.0 - material.reflFactor) * rayTask.contribution;
+		}
+		else
+		{
+			retColor+= material.color.rgb *  (1.0 - material.reflFactor) * rayTask.contribution;
+		}
+		
 		float newContribution = material.reflFactor * rayTask.contribution;
 			
 		if (newContribution>0.05)

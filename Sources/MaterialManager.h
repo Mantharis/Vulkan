@@ -101,7 +101,7 @@ public:
 	DescriptorSetLayout(DescriptorSetLayout &&) = delete;
 	DescriptorSetLayout& operator=(DescriptorSetLayout &&) = delete;
 
-	void addDescriptor(string const& paramName, size_t binding, VkShaderStageFlags shaderStages, VkDescriptorType type);
+	void addDescriptor(string const& paramName, size_t binding, VkShaderStageFlags shaderStages, VkDescriptorType type, unsigned int descriptorCount = 1);
 	void createDescriptorSetLayout();
 	VkDescriptorSetLayoutBinding const* getDescriptor(string const& paramName) const;
 	size_t getDescriptorCount() const;
@@ -131,6 +131,7 @@ public:
 	DescriptorSet& operator=(DescriptorSet&& obj);
 	void createDescriptorSet();
 
+	void setSamplerArray(string const& paramName, vector<VkImageView> const& imageViews, VkSampler sampler, VkImageLayout imageLayout);
 	void setSampler(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout);
 	void setImageStorage(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout);
 	void setBuffer(string const& paramName, Buffer const& buffer);
@@ -149,7 +150,7 @@ private:
 	VkDescriptorSet m_DescriptorSet;
 	VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 	shared_ptr<DescriptorSetLayout> m_DescriptorSetLayout;
-	vector<pair< VkDescriptorType, variant< VkDescriptorImageInfo, VkDescriptorBufferInfo> >> m_DescriptorInfo;
+	vector<pair< VkDescriptorType, variant< vector<VkDescriptorImageInfo>, VkDescriptorBufferInfo> >> m_DescriptorInfo;
 };
 
 

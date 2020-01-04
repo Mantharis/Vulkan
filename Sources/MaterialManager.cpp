@@ -85,14 +85,14 @@ using namespace std;
 	}
 
 	
-	void DescriptorSetLayout::addDescriptor(string const& paramName, size_t binding, VkShaderStageFlags shaderStages, VkDescriptorType type)
+	void DescriptorSetLayout::addDescriptor(string const& paramName, size_t binding, VkShaderStageFlags shaderStages, VkDescriptorType type, unsigned int descriptorCount )
 	{
 		assert(m_DescriptorSetLayoutBindingData.count(paramName) == 0);
 
 		auto& samplerLayoutBinding = m_DescriptorSetLayoutBindingData[paramName];
 		samplerLayoutBinding = {};
 		samplerLayoutBinding.binding = static_cast<uint32_t>(binding);
-		samplerLayoutBinding.descriptorCount = 1;
+		samplerLayoutBinding.descriptorCount = descriptorCount;
 		samplerLayoutBinding.descriptorType = type;
 		samplerLayoutBinding.pImmutableSamplers = nullptr;
 		samplerLayoutBinding.stageFlags = shaderStages;
@@ -185,7 +185,9 @@ using namespace std;
 		newDescriptorSet.dstArrayElement = 0;
 		newDescriptorSet.descriptorType = descSetLayoutBinding.descriptorType;
 		newDescriptorSet.descriptorCount = descSetLayoutBinding.descriptorCount;
-		newDescriptorSet.pImageInfo = get_if<VkDescriptorImageInfo>(&m_DescriptorInfo[descSetLayoutBinding.binding].second);
+
+		auto descriptorImageInfoArray = get_if<vector<VkDescriptorImageInfo>>(&m_DescriptorInfo[descSetLayoutBinding.binding].second);
+		newDescriptorSet.pImageInfo = descriptorImageInfoArray ? &descriptorImageInfoArray->at(0) : nullptr;
 		newDescriptorSet.pBufferInfo = get_if<VkDescriptorBufferInfo>(&m_DescriptorInfo[descSetLayoutBinding.binding].second);
 
 		vkUpdateDescriptorSets(m_DescriptorSetLayout->getDevice(), 1, &newDescriptorSet, 0, nullptr);
@@ -198,7 +200,12 @@ using namespace std;
 
 		m_DescriptorSetLayout->enumerate([&descriptorTypeCnt](VkDescriptorSetLayoutBinding& layoutBinding)
 			{
-				descriptorTypeCnt.insert(layoutBinding.descriptorType);
+				for (int i = 0; i < layoutBinding.descriptorCount; ++i)
+				{
+					//insert  layoutBinding.descriptorCount- times (this is really stupid way how to do it, but i feel lazy to refactor it at this moment)
+					descriptorTypeCnt.insert(layoutBinding.descriptorType);
+				}
+				
 			});
 
 		vector< VkDescriptorPoolSize> poolSizes;
@@ -235,20 +242,33 @@ using namespace std;
 		assert(res == VK_SUCCESS);
 	}
 
-	void DescriptorSet::setSampler(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout)
+	void DescriptorSet::setSamplerArray(string const& paramName, vector<VkImageView> const &imageViews, VkSampler sampler, VkImageLayout imageLayout)
 	{
 		auto desc = m_DescriptorSetLayout->getDescriptor(paramName);
 		assert(desc != nullptr && desc->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 
-		VkDescriptorImageInfo imageInfo = {};
-		imageInfo.imageLayout = imageLayout;
-		imageInfo.imageView = imageView;
-		imageInfo.sampler = sampler;
+		vector<VkDescriptorImageInfo> imageInfos;
 
+		for (auto imageView : imageViews)
+		{
+			VkDescriptorImageInfo imageInfo = {};
+			imageInfo.imageLayout = imageLayout;
+			imageInfo.imageView = imageView;
+			imageInfo.sampler = sampler;
+
+
+			imageInfos.push_back(imageInfo);
+		}
+		
 		if (m_DescriptorInfo.size() <= desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
-		m_DescriptorInfo[desc->binding] = make_pair(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, imageInfo);
+		m_DescriptorInfo[desc->binding] = make_pair(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, imageInfos);
 
 		updateDescriptorSet(*desc);
+	}
+
+	void DescriptorSet::setSampler(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout)
+	{
+		setSamplerArray(paramName, { imageView }, sampler, imageLayout);
 	}
 
 	void DescriptorSet::setImageStorage(string const& paramName, VkImageView imageView, VkSampler sampler, VkImageLayout imageLayout)
@@ -262,7 +282,7 @@ using namespace std;
 		imageInfo.sampler = sampler;
 
 		if (m_DescriptorInfo.size() <= desc->binding)  m_DescriptorInfo.resize(m_DescriptorSetLayout->getDescriptorCount());
-		m_DescriptorInfo[desc->binding] = make_pair(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, imageInfo);
+		m_DescriptorInfo[desc->binding] = make_pair(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, vector<VkDescriptorImageInfo>({ imageInfo }));
 
 		updateDescriptorSet(*desc);
 	}
